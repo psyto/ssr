@@ -1,6 +1,6 @@
 {
   "name": "cross-margin-view",
-  "category": "cross-margin",
+  "category": "walkthrough",
   "description": "Self-contained walkthrough of cross-asset margin. The scenario builds the borrower's + lender's state from scratch: register + verify both parties, init risk params, create both Token-2022 mints, init both vaults, fund both sides (with explicit signer switching), open a cross-mint loan, then read the unified margin view. Each step that requires a signer routes through the `--keypair` global flag so it is unambiguous who signs what. Useful for asking: how does the pool change as I tighten the SOVEREIGN_BOND haircut? Where does cross-mint netting change the verdict vs siloed lending health?",
   "headline": "Build one borrower + one lender + a cross-mint loan from scratch, then watch free margin recompute in one read-only call.",
   "steps": [

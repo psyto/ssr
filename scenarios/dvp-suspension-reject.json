@@ -1,6 +1,6 @@
 {
   "name": "dvp-suspension-reject",
-  "category": "compliance",
+  "category": "negative-path",
   "description": "Demonstrates the negative path. Same setup as `dvp-happy-path`, but the status_operator suspends one counterparty between trades. When the second trade attempts to settle through the wrapper, the on-chain compliance gate rejects with the distinct `COMPLIANCE_SUSPENDED` error code (0x2013) — not a generic transfer error. This is the consulting-value differentiator vs. a Token-2022 transfer hook alone: operators see *why* it failed.",
   "headline": "A suspended counterparty makes SettleDvp reject with COMPLIANCE_SUSPENDED (0x2013), not a generic error.",
   "steps": [

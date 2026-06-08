@@ -1,6 +1,6 @@
 {
   "name": "dvp-happy-path",
-  "category": "atomic-settlement",
+  "category": "walkthrough",
   "description": "Watch a compliance-gated atomic settlement happen end-to-end on a Solana sandbox. Two participants are registered + verified in the on-chain compliance registry; a 2-leg DvP is funded; the wrapper verifies both sides on-chain before signing the SettleDvp CPI. Useful for asking: how does on-chain compliance enforcement at the *composition* layer (not as a Token-2022 transfer hook) behave under stress? What changes if you flip the order of register/verify? What if a participant is suspended mid-flow?",
   "headline": "Two verified participants atomically swap asset ↔ cash; on-chain compliance gate fires before settlement.",
   "steps": [
