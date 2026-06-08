@@ -1,0 +1,43 @@
+{
+  "name": "dvp-happy-path",
+  "category": "dvp",
+  "description": "Two participants are KYC-verified, fund a 2-leg DvP, and atomically settle through the SSR-wrapped Solana Foundation SPC DvP Swap Program. The wrapper verifies on-chain compliance on both legs before signing the SettleDvp CPI. This is the canonical institutional permissioned-DvP path on Solana: compliance enforcement happens on-chain at the composition layer, not as a transfer hook on the mint.",
+  "headline": "Two verified participants atomically swap asset ↔ cash through SSR + SPC DvP, with on-chain compliance enforcement.",
+  "steps": [
+    {
+      "explanation": "Initialize the compliance registry. The signer becomes the initial super-admin.",
+      "command": "ssr-cli compliance init-registry",
+      "expect": "registry initialized"
+    },
+    {
+      "explanation": "Onboard the first participant. They enter the registry in PENDING status.",
+      "command": "ssr-cli compliance register --participant <USER_A_PUBKEY> --jurisdiction JP"
+    },
+    {
+      "explanation": "Verify the first participant. Status moves from PENDING to VERIFIED.",
+      "command": "ssr-cli compliance verify --participant <USER_A_PUBKEY>",
+      "expect": "VERIFIED"
+    },
+    {
+      "explanation": "Onboard + verify the second participant in two commands (same pattern).",
+      "command": "ssr-cli compliance register --participant <USER_B_PUBKEY> --jurisdiction JP && ssr-cli compliance verify --participant <USER_B_PUBKEY>"
+    },
+    {
+      "explanation": "(Off-CLI) Use spl-token-cli to create two Token-2022 mints (asset + cash) without TransferHook, then mint inventory to USER_A (asset) and USER_B (cash). The wrapper handles compliance; the mints do not need to.",
+      "command": "spl-token --program-id TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb create-token --decimals 6"
+    },
+    {
+      "explanation": "Compute the wrapper's settlement-authority PDA and the SwapDvp PDA the SPC program will create. No RPC — both are pure derivations.",
+      "command": "ssr-cli dvp authority-address && ssr-cli derive swap-dvp --settlement-authority <WRAPPER_AUTH> --user-a <USER_A> --user-b <USER_B> --mint-a <MINT_ASSET> --mint-b <MINT_CASH> --nonce 1"
+    },
+    {
+      "explanation": "(Off-CLI) Use any SPC client to call SPC CreateDvp permissionlessly with the wrapper PDA as `settlement_authority`. Then both parties fund their escrow leg via SPL Transfer.",
+      "command": "# (SPC CreateDvp call — outside ssr-cli; see SPC's docs)"
+    },
+    {
+      "explanation": "Settle. The wrapper reads user_a + user_b from the SwapDvp account, verifies both AccountRecord PDAs (status VERIFIED), signs SettleDvp as the wrapper PDA, and SPC atomically delivers asset ↔ cash + closes the SwapDvp + escrow ATAs.",
+      "command": "ssr-cli dvp settle --swap-dvp <SWAP_DVP_PDA>",
+      "expect": "tx confirmed"
+    }
+  ]
+}

@@ -21,6 +21,8 @@
 //!   `--keypair <path>` or `SSR_KEYPAIR`, defaults to that config's
 //!   `keypair_path`.
 
+mod scenario;
+
 use {
     anyhow::{Context, Result, anyhow, bail},
     clap::{Parser, Subcommand},
@@ -147,6 +149,37 @@ enum TopCommand {
     /// Pure derivations — no RPC.
     #[command(subcommand)]
     Derive(DeriveCmd),
+    /// Sandbox scenario surface — discover, inspect, and walk through
+    /// pre-baked institutional flows. See `scenarios/` and
+    /// `fabrknt/website/SANDBOX-PATTERN.md`.
+    #[command(subcommand)]
+    Scenario(ScenarioCmd),
+}
+
+#[derive(Subcommand)]
+enum ScenarioCmd {
+    /// List all available scenarios with their headlines.
+    List {
+        /// Directory containing scenario JSON files. Default: `scenarios/`
+        /// relative to the current working directory.
+        #[arg(long, default_value = "scenarios")]
+        dir: std::path::PathBuf,
+    },
+    /// Print one scenario's metadata and step summary.
+    Show {
+        /// Scenario name (file stem without `.json`).
+        name: String,
+        #[arg(long, default_value = "scenarios")]
+        dir: std::path::PathBuf,
+    },
+    /// Print the scenario's step-by-step recipe of ssr-cli invocations.
+    /// (Embedded in-process execution + state-diff rendering lands in v1.)
+    Run {
+        /// Scenario name (file stem without `.json`).
+        name: String,
+        #[arg(long, default_value = "scenarios")]
+        dir: std::path::PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -3141,5 +3174,38 @@ fn main() -> Result<()> {
             cmd_margin(&ctx, cmd)
         }
         TopCommand::Derive(cmd) => cmd_derive(&cli, cmd),
+        TopCommand::Scenario(cmd) => cmd_scenario(cmd),
+    }
+}
+
+/// Dispatch for the `scenario` subcommand family. No RPC; reads from
+/// `scenarios/*.json` and renders to stdout.
+fn cmd_scenario(cmd: ScenarioCmd) -> Result<()> {
+    match cmd {
+        ScenarioCmd::List { dir } => {
+            let paths = scenario::list_in(&dir)?;
+            let mut loaded: Vec<(std::path::PathBuf, scenario::Scenario)> =
+                Vec::with_capacity(paths.len());
+            for path in paths {
+                match scenario::load_from_path(&path) {
+                    Ok(s) => loaded.push((path, s)),
+                    Err(e) => eprintln!("warning: skipping {}: {e:#}", path.display()),
+                }
+            }
+            print!("{}", scenario::render_list(&loaded));
+            Ok(())
+        }
+        ScenarioCmd::Show { name, dir } => {
+            let path = dir.join(format!("{name}.json"));
+            let s = scenario::load_from_path(&path)?;
+            print!("{}", scenario::render_show(&s, &path));
+            Ok(())
+        }
+        ScenarioCmd::Run { name, dir } => {
+            let path = dir.join(format!("{name}.json"));
+            let s = scenario::load_from_path(&path)?;
+            print!("{}", scenario::render_run_v0(&s, &path));
+            Ok(())
+        }
     }
 }

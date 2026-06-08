@@ -32,6 +32,25 @@ Architecture choices that make this an interesting sandbox surface:
 
 ## How to explore (today)
 
+### Sandbox surface (recommended starting point)
+
+```bash
+# Discover the curated scenarios.
+ssr-cli scenario list
+
+# Inspect one without running.
+ssr-cli scenario show dvp-happy-path
+
+# Print the step-by-step recipe of ssr-cli invocations.
+# v0 prints the steps; v1 will execute them in-process and render a
+# headline + state-diff. See `cli/src/scenario.rs`.
+ssr-cli scenario run dvp-happy-path
+```
+
+Three scenarios ship today: `dvp-happy-path` (compliance bootstrap → atomic DvP settle), `dvp-suspension-reject` (negative path with distinct `COMPLIANCE_SUSPENDED` error), `cross-margin-view` (Phase 4 unified margin across two collateral mints + one cross-mint loan).
+
+### Drive the CLI directly
+
 ```bash
 # Boot a local Solana validator (separate terminal).
 solana-test-validator --reset
@@ -66,13 +85,11 @@ Per `fabrknt/website/SANDBOX-PATTERN.md`, every Fabrknt sandbox must ship five e
 
 | Element | Status | Notes |
 |---|---|---|
-| (1) Pre-baked scenarios | partial | The CLI demo dramaturgy (13 steps) + LiteSVM `demo_walk` integration test exist as one large scenario. Splitting into 5 named scenarios pending (DvP happy-path, suspension reject, repo lock cycle, cross-margin pool, Pyth-priced liquidation). |
-| (2) Business-readable output | gap | CLI output is admin-style (PDA addresses, raw fields). No headline + before/after wrapper yet. |
-| (3) Parameter dial | partial | Risk params (haircut table, max staleness) are governance-mutable. LTV, interest rates, liquidation parameters need CLI-flag exposure for scenario use. |
-| (4) Scenario replay | gap | Scenarios hardcode their inputs. Need a JSON fixture format. |
-| (5) CTA | gap | No CTA in any surface. Needs footer pointing to Fabrknt waitlist. |
-
-Implementation of these is tracked separately from this documentation pass.
+| (1) Pre-baked scenarios | **partial → present** | `scenarios/` directory with 3 scenarios (`dvp-happy-path`, `dvp-suspension-reject`, `cross-margin-view`). More to follow (repo lifecycle, lending happy-path, oracle-priced liquidation). |
+| (2) Business-readable output | partial | `ssr-cli scenario list` / `show` / `run` produce ASCII tables with headlines. Per-step output (the underlying `ssr-cli compliance/dvp/...` commands) is still admin-style. v1 will wrap the per-step output in a headline + state-diff layer. |
+| (3) Parameter dial | partial | Risk params (haircut table, max staleness) are governance-mutable. Per-step `--mint`, `--participant`, etc. provide dial-style overrides in scenarios. |
+| (4) Scenario replay | partial | Each scenario file is a deterministic step list — re-running yields the same sequence. Bit-identical state requires `solana-test-validator --reset` between runs. |
+| (5) CTA | **done** | `ssr-cli scenario list` / `show` / `run` all render a three-option CTA footer (adopt engine / custom build / hosted access) with `product=solana-prime-broker` for waitlist enrichment. |
 
 ## Build
 

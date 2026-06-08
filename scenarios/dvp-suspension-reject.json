@@ -1,0 +1,30 @@
+{
+  "name": "dvp-suspension-reject",
+  "category": "compliance",
+  "description": "Demonstrates the negative path. Same setup as `dvp-happy-path`, but the status_operator suspends one counterparty between trades. When the second trade attempts to settle through the wrapper, the on-chain compliance gate rejects with the distinct `COMPLIANCE_SUSPENDED` error code (0x2013) — not a generic transfer error. This is the consulting-value differentiator vs. a Token-2022 transfer hook alone: operators see *why* it failed.",
+  "headline": "A suspended counterparty makes SettleDvp reject with COMPLIANCE_SUSPENDED (0x2013), not a generic error.",
+  "steps": [
+    {
+      "explanation": "Assume the `dvp-happy-path` scenario has already run successfully — registry + two verified participants exist.",
+      "command": "# (prerequisite: run dvp-happy-path through Step 4 first)"
+    },
+    {
+      "explanation": "Status operator suspends USER_B. Status moves from VERIFIED to SUSPENDED.",
+      "command": "ssr-cli compliance suspend --participant <USER_B_PUBKEY>"
+    },
+    {
+      "explanation": "Verify the new status. Should return SUSPENDED.",
+      "command": "ssr-cli compliance status --participant <USER_B_PUBKEY>",
+      "expect": "SUSPENDED"
+    },
+    {
+      "explanation": "Attempt to settle a fresh DvP. The wrapper's compliance check rejects with the distinct `COMPLIANCE_SUSPENDED` code instead of a generic transfer error.",
+      "command": "ssr-cli dvp settle --swap-dvp <FRESH_SWAP_DVP_PDA>",
+      "expect": "Custom(0x2013)"
+    },
+    {
+      "explanation": "(Optional) Restore the participant with `verify` to confirm the gate is symmetric and demonstrates the reversal path.",
+      "command": "ssr-cli compliance verify --participant <USER_B_PUBKEY>"
+    }
+  ]
+}
