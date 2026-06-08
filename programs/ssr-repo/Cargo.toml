@@ -1,0 +1,46 @@
+[package]
+name         = "ssr-repo"
+version      = { workspace = true }
+edition      = { workspace = true }
+rust-version = { workspace = true }
+license      = { workspace = true }
+authors      = { workspace = true }
+publish      = { workspace = true }
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+
+[dev-dependencies]
+litesvm                      = "0.9.1"
+solana-instruction           = "3"
+solana-keypair               = "3"
+solana-signer                = "3"
+solana-address               = "2.6"
+solana-transaction           = "3"
+solana-message               = "3"
+solana-system-interface      = "3"
+solana-rent                  = "2"
+solana-program-pack          = "3"
+spl-token-2022               = "10"
+ssr-compliance               = { path = "../ssr-compliance" }
+# Note: ssr-vault is NOT a dev-dep either — see the comment under
+# `[dependencies]`. The test duplicates the two ix tags it needs and
+# pins them with the `vault_ix_discriminator_drift_check` test.
+
+[dependencies]
+ssr-types         = { workspace = true }
+# Note: we deliberately do NOT depend on `ssr-vault` as a Rust crate.
+# Two Pinocchio programs in the same workspace cannot easily share a
+# library: the dependent gets a duplicate global allocator / panic
+# handler link error from the BPF toolchain, and trying to gate
+# everything behind `no-entrypoint` leaves the upstream rlib with no
+# panic handler when linked into a downstream BPF binary. The
+# discriminator bytes we share are tiny — we duplicate them and
+# drift-check them via the test in `programs/ssr-repo/tests/`.
+pinocchio         = { workspace = true }
+pinocchio-pubkey  = { workspace = true }
+pinocchio-system  = { workspace = true }
+bytemuck          = { workspace = true }

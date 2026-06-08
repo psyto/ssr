@@ -1,0 +1,46 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ssr-types",
+    "programs/ssr-compliance",
+    "programs/ssr-dvp-wrapper",
+    "programs/ssr-vault",
+    "programs/ssr-repo",
+    "programs/ssr-lending",
+    "cli",
+    "tests/integration",
+]
+
+[workspace.package]
+version      = "0.1.0"
+edition      = "2021"
+rust-version = "1.79"
+license      = "MIT OR Apache-2.0"
+authors      = ["psyto <saito.hiroyuki@gmail.com>"]
+publish      = false
+
+[workspace.dependencies]
+ssr-types = { path = "crates/ssr-types" }
+
+# Pinocchio + ecosystem
+pinocchio        = "0.9.2"
+pinocchio-pubkey = "0.3"
+pinocchio-system = "0.4"
+
+# Zero-copy account serialization
+bytemuck = { version = "1.21", features = ["derive"] }
+
+# Test-only
+proptest = "1"
+
+[profile.release]
+overflow-checks = true
+lto             = "fat"
+codegen-units   = 1
+strip           = "symbols"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

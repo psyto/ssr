@@ -1,0 +1,57 @@
+[package]
+name         = "ssr-compliance"
+version      = { workspace = true }
+edition      = { workspace = true }
+rust-version = { workspace = true }
+license      = { workspace = true }
+authors      = { workspace = true }
+publish      = { workspace = true }
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+# Disable the SBF entrypoint when this crate is linked as a library by
+# another program (e.g., during CPI-mocked integration tests).
+no-entrypoint = []
+
+[dependencies]
+ssr-types         = { workspace = true }
+pinocchio         = { workspace = true }
+pinocchio-pubkey  = { workspace = true }
+pinocchio-system  = { workspace = true }
+bytemuck          = { workspace = true }
+
+[dev-dependencies]
+proptest                     = { workspace = true }
+sha2                         = "0.10"
+# Reference implementation used only to verify our hand-rolled
+# `extra_metas::write` byte layout matches the SPL spec.
+spl-tlv-account-resolution   = "0.10"
+spl-transfer-hook-interface  = "0.10"
+spl-discriminator            = "0.4"
+# LiteSVM-based smoke tests for write-side handlers. Versions chosen
+# to align with LiteSVM 0.9.1's expected `solana_address::Address`
+# (v3+ ecosystem) so `Keypair::pubkey()` and friends return `Address`.
+litesvm                      = "0.9.1"
+solana-instruction           = "3"
+solana-keypair               = "3"
+solana-signer                = "3"
+solana-address               = "2.6"
+solana-transaction           = "3"
+solana-message               = "3"
+solana-system-interface      = "3"
+solana-rent                  = "2"
+# Must align with spl-token-2022-interface's pin (3.0) — otherwise
+# Mint::LEN and friends are provided by a different trait version
+# than the one in scope.
+solana-program-pack          = "3"
+# Token-2022 E2E — v10 uses the same v3 solana-* ecosystem as LiteSVM 0.9.1
+# (v11 requires solana-instruction 3.4 but litesvm 0.9.1 pins ~3.1).
+spl-token-2022               = "10"
+spl-associated-token-account = "7"
+spl-pod                      = "0.5"
+# Phase 4 v1f: `update_price_from_pyth` tests inject a hand-crafted
+# Pyth `PriceUpdateV2` account via `LiteSVM::set_account`. v3 aligns
+# with LiteSVM 0.9.1's pin.
+solana-account               = "3"

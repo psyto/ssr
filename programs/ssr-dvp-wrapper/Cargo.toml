@@ -1,0 +1,37 @@
+[package]
+name         = "ssr-dvp-wrapper"
+version      = { workspace = true }
+edition      = { workspace = true }
+rust-version = { workspace = true }
+license      = { workspace = true }
+authors      = { workspace = true }
+publish      = { workspace = true }
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+
+[dependencies]
+ssr-types         = { workspace = true }
+pinocchio         = { workspace = true }
+pinocchio-pubkey  = { workspace = true }
+bytemuck          = { workspace = true }
+
+[dev-dependencies]
+# LiteSVM E2E with SPC dvp-swap-program + Token-2022 (no TransferHook
+# on the SSR mints — the wrapper is the gate).
+litesvm                      = "0.9.1"
+solana-instruction           = "3"
+solana-keypair               = "3"
+solana-signer                = "3"
+solana-address               = "2.6"
+solana-transaction           = "3"
+solana-message               = "3"
+solana-system-interface      = "3"
+solana-rent                  = "2"
+solana-program-pack          = "3"
+spl-token-2022               = "10"
+spl-associated-token-account = "7"
+ssr-compliance               = { path = "../ssr-compliance" }

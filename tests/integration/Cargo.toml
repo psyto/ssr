@@ -1,0 +1,44 @@
+[package]
+name         = "ssr-integration-tests"
+version      = { workspace = true }
+edition      = { workspace = true }
+rust-version = { workspace = true }
+license      = { workspace = true }
+authors      = { workspace = true }
+publish      = { workspace = true }
+
+# Cross-program LiteSVM tests that exercise the full demo dramaturgy
+# from `cli/README.md`: compliance bootstrap → DvP settle → vault
+# deposits → repo open/close → lending open/repay → liquidate. The
+# per-program tests under `programs/<crate>/tests/` cover each program
+# in isolation; the tests here pin the end-to-end pipeline so that a
+# change in one program can't silently break composition with another.
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
+litesvm                      = "0.9.1"
+solana-instruction           = "3"
+solana-keypair               = "3"
+solana-signer                = "3"
+solana-address               = "2.6"
+solana-transaction           = "3"
+solana-message               = "3"
+solana-system-interface      = "3"
+solana-program-pack          = "3"
+spl-token-2022               = "10"
+bytemuck                     = { workspace = true }
+pinocchio-pubkey             = { workspace = true }
+ssr-types                    = { workspace = true }
+ssr-compliance               = { path = "../../programs/ssr-compliance" }
+ssr-dvp-wrapper              = { path = "../../programs/ssr-dvp-wrapper" }
+ssr-repo                     = { path = "../../programs/ssr-repo" }
+ssr-lending                  = { path = "../../programs/ssr-lending" }
+# ssr-vault is intentionally NOT a dep, mirroring the constraint in
+# ssr-repo / ssr-lending: two Pinocchio programs in the same workspace
+# can hit duplicate-allocator / panic-handler link errors. We duplicate
+# the handful of vault ix discriminators we need and pin them with a
+# drift-check test at the bottom of the test file.
