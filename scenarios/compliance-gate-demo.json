@@ -1,0 +1,13 @@
+{
+  "name": "compliance-gate-demo",
+  "category": "stress",
+  "description": "Self-contained, no-validator demo of the compliance gate. Five synthetic participants (one each of VERIFIED / PENDING / SUSPENDED / BLOCKED, plus a second VERIFIED counterparty) are evaluated against `AccountRecord::check_transfer_allowed` for every sender-receiver pair. The output is a 5×5 matrix of allow / reject decisions plus a named reason for each reject (`sender SUSPENDED`, `receiver BLOCKED`, …). Useful for asking: which statuses actually clear the gate? What error does an operator see for a specific reject? How does the gate's behavior change if a verified counterparty is suspended mid-flow?\n\nRuns in milliseconds against pure-Rust `ssr-types` primitives — no Solana validator, no LiteSVM, no deployed program required.",
+  "headline": "Five participants × 5 = 25 pairs; only the two VERIFIED ↔ VERIFIED transfers clear the gate, each reject carries a named reason.",
+  "steps": [
+    {
+      "explanation": "Run the in-process compliance gate matrix demo. Builds a synthetic participant population and exhaustively evaluates every (sender, receiver) pair.",
+      "command": "ssr-cli compliance-gate-demo",
+      "expect": "VERIFIED"
+    }
+  ]
+}

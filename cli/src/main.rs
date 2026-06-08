@@ -21,6 +21,7 @@
 //!   `--keypair <path>` or `SSR_KEYPAIR`, defaults to that config's
 //!   `keypair_path`.
 
+mod compliance_demo;
 mod scenario;
 
 use {
@@ -154,6 +155,13 @@ enum TopCommand {
     /// `fabrknt/website/SANDBOX-PATTERN.md`.
     #[command(subcommand)]
     Scenario(ScenarioCmd),
+    /// Standalone compliance-gate behaviour demo. Boots a synthetic
+    /// 4-participant population (one per status) and prints the
+    /// transfer-allowed matrix. Pure Rust against `ssr-types`
+    /// primitives — no validator, no LiteSVM, no deployed program.
+    /// Same flow the scenario runner v2 path invokes for the
+    /// `compliance-gate-demo` scenario.
+    ComplianceGateDemo,
 }
 
 #[derive(Subcommand)]
@@ -3180,6 +3188,10 @@ fn main() -> Result<()> {
         }
         TopCommand::Derive(cmd) => cmd_derive(&cli, cmd),
         TopCommand::Scenario(cmd) => cmd_scenario(cmd),
+        TopCommand::ComplianceGateDemo => {
+            compliance_demo::run_compliance_demo_cli();
+            Ok(())
+        }
     }
 }
 

@@ -55,7 +55,11 @@ ssr-cli scenario run dvp-happy-path
 ssr-cli scenario run dvp-happy-path --dry-run
 ```
 
-Three scenarios ship today: `dvp-happy-path` (compliance bootstrap → atomic DvP settle), `dvp-suspension-reject` (suspended counterparty rejects with distinct `COMPLIANCE_SUSPENDED` error code), `cross-margin-view` (cross-asset margin pool + cross-mint loan, Pyth-driven).
+Four scenarios ship today:
+- **`compliance-gate-demo`** (v2, no validator needed) — pure-Rust simulation of the compliance gate against a 5-participant population; renders a 5×5 allow/reject matrix with named failure reasons.
+- `dvp-happy-path` — compliance bootstrap → atomic DvP settle (v1, sub-process).
+- `dvp-suspension-reject` — suspended counterparty rejects with distinct `COMPLIANCE_SUSPENDED` (v1, sub-process).
+- `cross-margin-view` — cross-asset margin pool + cross-mint loan, Pyth-driven (v1, sub-process).
 
 ### Drive the CLI directly
 
@@ -94,7 +98,7 @@ Per `fabrknt/website/SANDBOX-PATTERN.md`, every Fabrknt sandbox must ship five e
 | Element | Status | Notes |
 |---|---|---|
 | (1) Pre-baked scenarios | **present** | 3 scenarios in `scenarios/`. More to follow (repo lifecycle, lending happy-path, oracle-priced liquidation). |
-| (2) Business-readable output | **partial** | `scenario run` spawns each step as a sub-process and inherits stdio — the underlying `ssr-cli` output is operator-style (PDA addresses, raw fields, tx hashes), wrapped only by a scenario header + per-step pass/fail verdict + final tally. A true business-readable layer (headline + state diff in non-operator language) is v2 work. |
+| (2) Business-readable output | **v2 partial** | Scenarios whose steps are all in-process-eligible (currently: `compliance-gate-demo`) take the v2 path: in-process dispatch into `run_compliance_demo_structured`, then HEADLINE / TIMELINE / DELTA / OUTCOMES / NEXT contract per `fabrknt/website/SANDBOX-PATTERN.md`. The DVP / cross-margin scenarios still spawn `ssr-cli` sub-processes with stdio inherited (v1) because their steps depend on a running validator + deployed programs. OUTCOMES emits a placeholder; Phase 3 will parse `expected_outcomes` from JSON and verify each ✓/✗. |
 | (3) Parameter dial | partial | Risk params (haircut table, max staleness) are governance-mutable. Per-step `--mint`, `--participant`, etc. provide dial-style overrides in scenarios. CLI-flag override on `scenario run` (e.g. `--haircut equity 4500`) is v2. |
 | (4) Scenario replay | **present** | Each scenario file is a deterministic step list — re-running yields the same sub-process invocations. Bit-identical chain state requires `solana-test-validator --reset` between runs. |
 | (5) CTA | **done** | `scenario list` / `show` / `run` all render a three-option CTA footer (adopt engine / custom build / hosted access) with `product=solana-prime-broker` for waitlist enrichment. |
