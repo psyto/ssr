@@ -245,12 +245,18 @@ pub fn run_embedded(scenario: &Scenario, path: &Path) -> Result<EmbeddedReport> 
         // whitespace — the metachars must be interpreted, not passed
         // as literal argv. Route those through `sh -c` with PATH
         // augmented so `ssr-cli` resolves to the current binary.
+        //
+        // NOTE: `<` and `>` are intentionally NOT in this set.
+        // Curated scenarios use `<PLACEHOLDER>` syntax for values
+        // the operator must substitute before running; treating
+        // those as shell redirects would break every step that has
+        // a placeholder. Real shell redirects are not used in any
+        // shipped scenario; if a future scenario needs one, prefer
+        // splitting it into separate steps or capturing-via-Rust.
         let has_shell_metas = trimmed.contains("&&")
             || trimmed.contains("||")
             || trimmed.contains(';')
-            || trimmed.contains('|')
-            || trimmed.contains('>')
-            || trimmed.contains('<');
+            || trimmed.contains('|');
 
         let mut cmd = if has_shell_metas {
             let mut c = Command::new("sh");
