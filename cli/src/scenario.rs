@@ -1,3 +1,29 @@
+//! **Mirrored across sibling Fabrknt sandbox engines.** This module's
+//! shape (Scenario JSON, list/show/run renderers, run_embedded with
+//! sub-process spawn + stdio inherit, `has_shell_metacharacters`,
+//! `EmbeddedReport`, CTA footer with `product=` waitlist enrichment)
+//! is duplicated nearly verbatim in:
+//!
+//!   - psyto/rdk            → `princeps/bin/princeps/src/scenario.rs`
+//!   - psyto/openhl-solana  → `scripts/scenario/src/main.rs`
+//!
+//! When you change behavior shared across them (metachar detection
+//! rules, headline rendering, JSON shape, CTA footer text), apply the
+//! same change to all three. The decision to keep three copies rather
+//! than extract to a shared crate (e.g. `fabrknt-scenario-runner`) is
+//! deliberate: the engines live in different repos with no shared
+//! workspace, so a crate would need crates.io publication + cross-repo
+//! version coordination that doesn't yet pay for itself given the
+//! small surface area. Revisit when adding the 4th subprocess-based
+//! runner or when the shared surface grows.
+//!
+//! The 4th Fabrknt runner (`rdk/openhl`) is structurally different —
+//! in-process execution via `LiveRethEvmBridge<()>` rather than
+//! sub-process spawn — so it shares only the Scenario JSON shape and
+//! the CTA footer with these three.
+//!
+//! ---
+//!
 //! Sandbox scenario surface for ssr-cli.
 //!
 //! A *scenario* is a metadata-wrapped recipe of `ssr-cli` invocations
