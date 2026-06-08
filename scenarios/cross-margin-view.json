@@ -1,33 +1,62 @@
 {
   "name": "cross-margin-view",
   "category": "cross-margin",
-  "description": "Explore how cross-asset margin behaves on Solana. A borrower holds two collateral positions in different mints (e.g. a sovereign bond and a stablecoin) and one cross-mint loan. The unified margin view aggregates: haircut-adjusted collateral pool by asset class, projected liability (principal + simple interest), and net free margin per cash mint. Useful for asking: how does the pool change as I tighten the EQUITY haircut? What happens to free margin when ETH bounces between $1.00 and $1.08? Where does a real Pyth feed change the verdict vs the manually-set price?",
-  "headline": "One borrower, two collateral mints, one cross-mint loan: free margin recomputes in one read-only call.",
+  "description": "Self-contained walkthrough of cross-asset margin. The scenario builds the borrower's state from scratch: register + verify, deposit two collateral mints, open a cross-mint loan, then read the unified margin view. Useful for asking: how does the pool change as I tighten the EQUITY haircut? What happens to free margin when the cash mint's Pyth price moves? Where does cross-mint netting change the verdict vs siloed lending health?",
+  "headline": "Build one borrower with two collateral mints + one cross-mint loan, then watch free margin recompute in one read-only call.",
   "steps": [
     {
-      "explanation": "Initialize the RiskParams PDA (one-time per deployment). Sets the governance-mutable haircut table.",
+      "explanation": "Initialize the on-chain compliance registry (idempotent for a fresh validator).",
+      "command": "ssr-cli compliance init-registry"
+    },
+    {
+      "explanation": "Register the borrower in the compliance registry.",
+      "command": "ssr-cli compliance register --participant <BORROWER_PUBKEY> --jurisdiction JP"
+    },
+    {
+      "explanation": "Verify the borrower so they can participate in DvP / vault / lending flows.",
+      "command": "ssr-cli compliance verify --participant <BORROWER_PUBKEY>",
+      "expect": "VERIFIED"
+    },
+    {
+      "explanation": "Initialize the RiskParams PDA. Sets the governance-mutable haircut table that the margin view reads on every call.",
       "command": "ssr-cli compliance init-risk-params"
     },
     {
-      "explanation": "(Optional) Tighten the EQUITY-class haircut from the 30% default to 45%. Demonstrates the parameter dial.",
-      "command": "ssr-cli compliance set-haircut --class equity --bps 4500"
+      "explanation": "(Off-CLI) Create two Token-2022 mints (collateral + cash) without TransferHook and mint inventory to the borrower. Capture the resulting public keys as MINT_SOVEREIGN and MINT_USDC.",
+      "command": "spl-token --program-id TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb create-token --decimals 6"
     },
     {
-      "explanation": "Read the current haircut table to confirm. Read-only — no keypair needed.",
-      "command": "ssr-cli compliance show-risk-params",
-      "expect": "EQUITY"
+      "explanation": "Initialize the collateral vault for the sovereign-class mint.",
+      "command": "ssr-cli vault init --mint <MINT_SOVEREIGN> --asset-class sovereign-bond"
     },
     {
-      "explanation": "Assume the borrower already deposited 500_000 units of MINT_SOVEREIGN as collateral via `ssr-cli vault deposit ...` and opened a loan via `ssr-cli lending open ...` (these flows live in adjacent scenarios). Read the unified margin view across both collateral mints.",
+      "explanation": "Initialize the cash vault for the loan's settlement currency.",
+      "command": "ssr-cli vault init --mint <MINT_USDC> --asset-class stablecoin"
+    },
+    {
+      "explanation": "Borrower deposits 500_000 units of collateral into the sovereign vault.",
+      "command": "ssr-cli vault deposit --mint <MINT_SOVEREIGN> --amount 500000",
+      "expect": "amount_deposited"
+    },
+    {
+      "explanation": "(Lender side) The lender deposits cash inventory so a loan can be opened against it.",
+      "command": "ssr-cli vault deposit --mint <MINT_USDC> --amount 400000"
+    },
+    {
+      "explanation": "Open a cross-mint loan: borrower collateralizes 300_000 sovereign units, borrows 200_000 USDC against it.",
+      "command": "ssr-cli lending open --borrower-keypair <BORROWER_KEYPAIR> --lender-keypair <LENDER_KEYPAIR> --collateral-mint <MINT_SOVEREIGN> --cash-mint <MINT_USDC> --collateral-amount 300000 --principal-amount 200000 --maturity-slot <FUTURE_SLOT> --nonce 1"
+    },
+    {
+      "explanation": "Read the unified margin view across both collateral mints — this is the punchline. Haircut-adjusted collateral pool, projected liability (principal + accrued simple interest), and net free margin per cash mint, all in one read-only call.",
       "command": "ssr-cli margin show --user <BORROWER_PUBKEY> --mint <MINT_SOVEREIGN> --mint <MINT_USDC>",
       "expect": "haircut-adjusted"
     },
     {
-      "explanation": "(Optional — when Pyth is bound) Refresh the collateral feed from Pyth.",
-      "command": "ssr-cli compliance update-price-from-pyth --mint <MINT_SOVEREIGN>"
+      "explanation": "(Parameter dial) Tighten the sovereign-bond haircut and re-read the margin view to see the pool drop.",
+      "command": "ssr-cli compliance set-haircut --class sovereign-bond --bps 1500"
     },
     {
-      "explanation": "Re-read margin after the Pyth refresh — observe how the oracle drives the free-margin number.",
+      "explanation": "Re-read margin. Same accounts, same loan; the haircut change alone moves the free-margin number.",
       "command": "ssr-cli margin show --user <BORROWER_PUBKEY> --mint <MINT_SOVEREIGN> --mint <MINT_USDC>"
     }
   ]

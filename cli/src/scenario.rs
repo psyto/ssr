@@ -162,6 +162,23 @@ pub fn render_run_v0(scenario: &Scenario, path: &Path) -> String {
     out
 }
 
+/// Detect whether `command` contains shell metacharacters that mean it
+/// can't be naïvely whitespace-split into argv. Returns true for
+/// command chains (`&&`, `||`, `;`) and pipes (`|`).
+///
+/// **Intentionally excluded**: `<` and `>`. Curated scenarios use
+/// `<PLACEHOLDER>` syntax for values the operator must substitute,
+/// and treating `<X>` as shell redirects breaks every placeholder
+/// step. Real shell redirects are not used in any shipped scenario;
+/// if a future scenario genuinely needs one, prefer splitting into
+/// separate steps or extending this detection more carefully.
+pub fn has_shell_metacharacters(command: &str) -> bool {
+    command.contains("&&")
+        || command.contains("||")
+        || command.contains(';')
+        || command.contains('|')
+}
+
 fn cta_footer() -> String {
     let mut out = String::new();
     out.push_str("\nNEXT:\n");
@@ -240,23 +257,7 @@ pub fn run_embedded(scenario: &Scenario, path: &Path) -> Result<EmbeddedReport> 
             continue;
         }
 
-        // Shell-metacharacter detection. Steps that chain commands
-        // via `&&`, `||`, `;`, or pipes can't be naïvely split on
-        // whitespace — the metachars must be interpreted, not passed
-        // as literal argv. Route those through `sh -c` with PATH
-        // augmented so `ssr-cli` resolves to the current binary.
-        //
-        // NOTE: `<` and `>` are intentionally NOT in this set.
-        // Curated scenarios use `<PLACEHOLDER>` syntax for values
-        // the operator must substitute before running; treating
-        // those as shell redirects would break every step that has
-        // a placeholder. Real shell redirects are not used in any
-        // shipped scenario; if a future scenario needs one, prefer
-        // splitting it into separate steps or capturing-via-Rust.
-        let has_shell_metas = trimmed.contains("&&")
-            || trimmed.contains("||")
-            || trimmed.contains(';')
-            || trimmed.contains('|');
+        let has_shell_metas = has_shell_metacharacters(trimmed);
 
         let mut cmd = if has_shell_metas {
             let mut c = Command::new("sh");
@@ -388,5 +389,40 @@ mod tests {
         assert!(out.contains("Step 1 — Initialize the compliance registry."));
         assert!(out.contains("$ ssr-cli compliance init-registry"));
         assert!(out.contains("expect output to include: registry initialized"));
+    }
+
+    /// Regression tests for shell-metachar detection. The runner
+    /// branches on this; both branches have failed in distinct ways
+    /// in this session's history, so the detection is locked in here.
+
+    #[test]
+    fn metachar_routes_chains_through_sh() {
+        assert!(has_shell_metacharacters("ssr-cli foo && ssr-cli bar"));
+        assert!(has_shell_metacharacters("a || b"));
+        assert!(has_shell_metacharacters("a; b"));
+        assert!(has_shell_metacharacters("a | grep b"));
+    }
+
+    /// Regression: scenarios use `<PLACEHOLDER>` for operator-
+    /// substituted values. Treating `<` / `>` as metachars would
+    /// route every placeholder-bearing step through `sh -c`, where
+    /// the placeholder is parsed as a stdin redirect (`<file`) and
+    /// the step breaks. Locks the fix in.
+    #[test]
+    fn metachar_does_not_match_angle_bracket_placeholders() {
+        assert!(!has_shell_metacharacters(
+            "ssr-cli compliance register --participant <USER_A_PUBKEY> --jurisdiction JP"
+        ));
+        assert!(!has_shell_metacharacters("ssr-cli derive swap-dvp --user-a <USER_A>"));
+        assert!(!has_shell_metacharacters("cmd <input> output"));
+    }
+
+    #[test]
+    fn metachar_does_not_match_plain_commands() {
+        assert!(!has_shell_metacharacters("ssr-cli compliance init-registry"));
+        assert!(!has_shell_metacharacters(
+            "ssr-cli margin show --user X --mint M1 --mint M2"
+        ));
+        assert!(!has_shell_metacharacters("solana program deploy x.so"));
     }
 }
