@@ -172,13 +172,18 @@ enum ScenarioCmd {
         #[arg(long, default_value = "scenarios")]
         dir: std::path::PathBuf,
     },
-    /// Print the scenario's step-by-step recipe of ssr-cli invocations.
-    /// (Embedded in-process execution + state-diff rendering lands in v1.)
+    /// Run the scenario: spawn each step as a sub-process (ssr-cli
+    /// prefixes auto-route to current_exe; other CLIs spawned by
+    /// name). Stdio inherited so step output streams live. Pass
+    /// `--dry-run` to print only the step list without executing.
     Run {
         /// Scenario name (file stem without `.json`).
         name: String,
         #[arg(long, default_value = "scenarios")]
         dir: std::path::PathBuf,
+        /// Skip embedded execution; print only the step list.
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
     },
 }
 
@@ -3201,11 +3206,19 @@ fn cmd_scenario(cmd: ScenarioCmd) -> Result<()> {
             print!("{}", scenario::render_show(&s, &path));
             Ok(())
         }
-        ScenarioCmd::Run { name, dir } => {
+        ScenarioCmd::Run { name, dir, dry_run } => {
             let path = dir.join(format!("{name}.json"));
             let s = scenario::load_from_path(&path)?;
-            print!("{}", scenario::render_run_v0(&s, &path));
-            Ok(())
+            if dry_run {
+                print!("{}", scenario::render_run_v0(&s, &path));
+                Ok(())
+            } else {
+                let report = scenario::run_embedded(&s, &path)?;
+                if report.failed > 0 {
+                    bail!("{} step(s) failed during scenario run", report.failed);
+                }
+                Ok(())
+            }
         }
     }
 }

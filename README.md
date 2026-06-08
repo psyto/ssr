@@ -41,10 +41,13 @@ ssr-cli scenario list
 # Inspect one without running.
 ssr-cli scenario show dvp-happy-path
 
-# Print the step-by-step recipe of ssr-cli invocations.
-# v0 prints the steps; v1 will execute them in-process and render a
-# headline + state-diff. See `cli/src/scenario.rs`.
+# Run the scenario: each step is spawned as a sub-process (ssr-cli
+# prefixes auto-route to the current binary; other CLIs run from
+# PATH). Stdio inherited so step output streams live.
 ssr-cli scenario run dvp-happy-path
+
+# Pass --dry-run to print the step list without executing.
+ssr-cli scenario run dvp-happy-path --dry-run
 ```
 
 Three scenarios ship today: `dvp-happy-path` (compliance bootstrap → atomic DvP settle), `dvp-suspension-reject` (negative path with distinct `COMPLIANCE_SUSPENDED` error), `cross-margin-view` (Phase 4 unified margin across two collateral mints + one cross-mint loan).
@@ -85,10 +88,10 @@ Per `fabrknt/website/SANDBOX-PATTERN.md`, every Fabrknt sandbox must ship five e
 
 | Element | Status | Notes |
 |---|---|---|
-| (1) Pre-baked scenarios | **partial → present** | `scenarios/` directory with 3 scenarios (`dvp-happy-path`, `dvp-suspension-reject`, `cross-margin-view`). More to follow (repo lifecycle, lending happy-path, oracle-priced liquidation). |
-| (2) Business-readable output | partial | `ssr-cli scenario list` / `show` / `run` produce ASCII tables with headlines. Per-step output (the underlying `ssr-cli compliance/dvp/...` commands) is still admin-style. v1 will wrap the per-step output in a headline + state-diff layer. |
+| (1) Pre-baked scenarios | **present** | `scenarios/` directory with 3 scenarios (`dvp-happy-path`, `dvp-suspension-reject`, `cross-margin-view`). More to follow (repo lifecycle, lending happy-path, oracle-priced liquidation). |
+| (2) Business-readable output | **v1 present** | `ssr-cli scenario run` spawns each step as a sub-process (`ssr-cli` prefixes auto-route to `current_exe`; other CLIs from PATH), wrapped with a headline header, per-step separators, and a final pass/fail verdict. Stdio inherited so step output streams live. v2 will tee stdio so declared expect-substrings can be verified. |
 | (3) Parameter dial | partial | Risk params (haircut table, max staleness) are governance-mutable. Per-step `--mint`, `--participant`, etc. provide dial-style overrides in scenarios. |
-| (4) Scenario replay | partial | Each scenario file is a deterministic step list — re-running yields the same sequence. Bit-identical state requires `solana-test-validator --reset` between runs. |
+| (4) Scenario replay | **present** | Each scenario file is a deterministic step list — re-running yields the same sub-process invocations. Bit-identical state requires `solana-test-validator --reset` between runs. |
 | (5) CTA | **done** | `ssr-cli scenario list` / `show` / `run` all render a three-option CTA footer (adopt engine / custom build / hosted access) with `product=solana-prime-broker` for waitlist enrichment. |
 
 ## Build

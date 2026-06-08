@@ -7,12 +7,18 @@
 //! headline + step rendering, (3) parameter dial via per-step args,
 //! (4) replay (the JSON IS the replay format), (5) CTA footer.
 //!
-//! v0 prints the step list with explanations rather than executing in
-//! sub-processes. Embedded execution + state-diff rendering lands in
-//! v1.
+//! v1 spawns each step as a sub-process via `std::env::current_exe`
+//! so `ssr-cli`-prefixed commands re-enter the same binary; other
+//! commands (e.g., `spl-token`, `solana-keygen`, `solana program
+//! deploy`) are spawned by name and require the relevant CLI to be in
+//! PATH. Stdio is inherited so each step's output streams live.
+//!
+//! v0 (legacy [`render_run_v0`]) prints only the step list; kept
+//! exported for the `--dry-run` flag.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -163,6 +169,134 @@ fn cta_footer() -> String {
     out.push_str("  • Custom build       : https://fabrknt.com/waitlist.html?product=solana-prime-broker&intent=build\n");
     out.push_str("  • Hosted access      : https://fabrknt.com/waitlist.html?product=solana-prime-broker&intent=hosted\n");
     out
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct EmbeddedReport {
+    pub total: usize,
+    pub skipped: usize,
+    pub passed: usize,
+    pub failed: usize,
+    pub expectations_unverified: usize,
+}
+
+/// v1 embedded execution. Walks each step and spawns:
+/// - `ssr-cli`-prefixed commands → current_exe (so PATH doesn't need
+///   `ssr-cli` installed)
+/// - other commands (spl-token, solana-keygen, solana program deploy
+///   etc.) → spawned by name; missing binaries surface as a clear
+///   "failed to spawn" error and mark the step failed.
+///
+/// Comment-only steps (`#` prefix) are skipped as informational.
+pub fn run_embedded(scenario: &Scenario, path: &Path) -> Result<EmbeddedReport> {
+    println!(
+        "─── scenario: {} ────────────────────────────────────",
+        scenario.name
+    );
+    println!("HEADLINE (curator claim): {}", scenario.headline);
+    println!();
+    println!("DESCRIPTION:");
+    for line in scenario.description.lines() {
+        println!("  {line}");
+    }
+    println!();
+    println!("PREREQUISITES (operator's responsibility):");
+    println!("  solana-test-validator --reset    # in another terminal");
+    println!("  cargo build-sbf --manifest-path programs/ssr-compliance/Cargo.toml");
+    println!("  cargo build-sbf --manifest-path programs/ssr-dvp-wrapper/Cargo.toml");
+    println!("  solana program deploy target/deploy/ssr_compliance.so");
+    println!("  solana program deploy target/deploy/ssr_dvp_wrapper.so");
+    println!();
+
+    let current_exe = std::env::current_exe()
+        .with_context(|| "current_exe() failed".to_string())?;
+
+    let mut report = EmbeddedReport {
+        total: scenario.steps.len(),
+        skipped: 0,
+        passed: 0,
+        failed: 0,
+        expectations_unverified: 0,
+    };
+
+    for (i, step) in scenario.steps.iter().enumerate() {
+        println!(
+            "─── Step {} of {} ───────────────────────────",
+            i + 1,
+            scenario.steps.len()
+        );
+        println!("  {}", step.explanation);
+        println!("  $ {}", step.command);
+        if let Some(expect) = &step.expect {
+            println!("  # (looking for: {expect})");
+        }
+        println!();
+
+        let trimmed = step.command.trim();
+        if trimmed.starts_with('#') || trimmed.is_empty() {
+            println!("  (informational step — no command executed)");
+            println!();
+            report.skipped += 1;
+            continue;
+        }
+
+        let argv: Vec<&str> = trimmed.split_whitespace().collect();
+        let (program, args) = match argv.split_first() {
+            Some((p, a)) => (*p, a.to_vec()),
+            None => continue,
+        };
+
+        let (cmd_name, cmd_args): (String, Vec<&str>) = if program == "ssr-cli" {
+            (current_exe.to_string_lossy().into_owned(), args)
+        } else {
+            (program.to_string(), args)
+        };
+
+        let mut cmd = Command::new(&cmd_name);
+        cmd.args(&cmd_args);
+        let status = cmd.status();
+
+        match status {
+            Ok(s) if s.success() => {
+                println!();
+                println!("  ✓ step {} succeeded (exit 0)", i + 1);
+                report.passed += 1;
+                if step.expect.is_some() {
+                    report.expectations_unverified += 1;
+                }
+            }
+            Ok(s) => {
+                println!();
+                println!("  ✗ step {} exited {}", i + 1, s.code().unwrap_or(-1));
+                report.failed += 1;
+            }
+            Err(e) => {
+                println!();
+                println!("  ✗ step {} failed to spawn: {e}", i + 1);
+                println!(
+                    "    (program: {cmd_name:?}; ssr-cli prefixes are auto-routed to current_exe — other CLIs must be in PATH)"
+                );
+                report.failed += 1;
+            }
+        }
+        println!();
+    }
+
+    println!("─── verdict ───────────────────────────────────────────");
+    println!(
+        "{} step(s): {} passed / {} failed / {} skipped (informational)",
+        report.total, report.passed, report.failed, report.skipped
+    );
+    if report.expectations_unverified > 0 {
+        println!(
+            "{} step(s) declared expected-output substrings; v1 cannot verify these because it inherits stdio (v2 will tee).",
+            report.expectations_unverified
+        );
+    }
+    println!("source: {}", path.display());
+    print!("{}", cta_footer());
+
+    Ok(report)
 }
 
 #[cfg(test)]
