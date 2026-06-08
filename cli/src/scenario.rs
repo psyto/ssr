@@ -56,6 +56,125 @@ pub struct Scenario {
     pub description: String,
     pub headline: String,
     pub steps: Vec<ScenarioStep>,
+    /// v2 Phase 3: optional declarative outcome checks. When present
+    /// and the runner is v2-eligible, each check is evaluated against
+    /// the captured execution result and rendered as `✓` / `✗` in the
+    /// OUTCOMES section. When all checks pass, the HEADLINE drops the
+    /// "(unverified)" qualifier.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expected_outcomes: Vec<ExpectedOutcome>,
+}
+
+/// One declarative outcome a scenario claims to demonstrate. `check`
+/// is engine-specific; for ssr it is a [`ComplianceCheck`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExpectedOutcome {
+    pub name: String,
+    pub description: String,
+    pub check: ComplianceCheck,
+}
+
+/// Engine-specific check schema for ssr. JSON-serialized as externally-
+/// tagged so authors write `{"allowed_pairs": 2}` rather than
+/// `{"kind": "allowed_pairs", "value": 2}`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComplianceCheck {
+    /// Assert the exact count of (sender, receiver) pairs the gate allows.
+    AllowedPairs(usize),
+    /// Assert the exact count of pairs the gate rejects.
+    RejectedPairs(usize),
+    /// Assert that a specific named pair clears the gate.
+    AllowedPair {
+        sender: String,
+        receiver: String,
+    },
+    /// Assert that a specific named pair is rejected by the gate.
+    RejectedPair {
+        sender: String,
+        receiver: String,
+    },
+    /// Assert that a specific named pair is rejected with a reason
+    /// that contains the given substring (case-sensitive).
+    RejectReason {
+        sender: String,
+        receiver: String,
+        reason_contains: String,
+    },
+}
+
+/// Per-outcome evaluation status used in the OUTCOMES section.
+#[derive(Debug, Clone)]
+pub enum OutcomeStatus {
+    Pass,
+    Fail(String),
+}
+
+/// Evaluate one check against a [`compliance_demo::ComplianceDemoResult`].
+pub fn evaluate_compliance_check(
+    check: &ComplianceCheck,
+    result: &crate::compliance_demo::ComplianceDemoResult,
+) -> OutcomeStatus {
+    match check {
+        ComplianceCheck::AllowedPairs(expected) => {
+            let observed = result.allowed_pairs();
+            if observed == *expected {
+                OutcomeStatus::Pass
+            } else {
+                OutcomeStatus::Fail(format!("observed allowed_pairs = {observed}"))
+            }
+        }
+        ComplianceCheck::RejectedPairs(expected) => {
+            let observed = result.rejected_pairs();
+            if observed == *expected {
+                OutcomeStatus::Pass
+            } else {
+                OutcomeStatus::Fail(format!("observed rejected_pairs = {observed}"))
+            }
+        }
+        ComplianceCheck::AllowedPair { sender, receiver } => {
+            match find_outcome(result, sender, receiver) {
+                Some(o) if o.allowed => OutcomeStatus::Pass,
+                Some(o) => OutcomeStatus::Fail(format!("pair {sender}→{receiver} rejected: {}", o.reason)),
+                None => OutcomeStatus::Fail(format!("pair {sender}→{receiver} not found (check names)")),
+            }
+        }
+        ComplianceCheck::RejectedPair { sender, receiver } => {
+            match find_outcome(result, sender, receiver) {
+                Some(o) if !o.allowed => OutcomeStatus::Pass,
+                Some(_) => OutcomeStatus::Fail(format!("pair {sender}→{receiver} was allowed (expected reject)")),
+                None => OutcomeStatus::Fail(format!("pair {sender}→{receiver} not found")),
+            }
+        }
+        ComplianceCheck::RejectReason {
+            sender,
+            receiver,
+            reason_contains,
+        } => match find_outcome(result, sender, receiver) {
+            Some(o) if o.allowed => OutcomeStatus::Fail(format!(
+                "pair {sender}→{receiver} was allowed (expected reject containing '{reason_contains}')"
+            )),
+            Some(o) if o.reason.contains(reason_contains) => OutcomeStatus::Pass,
+            Some(o) => OutcomeStatus::Fail(format!(
+                "pair {sender}→{receiver} rejected but reason '{}' did not contain '{reason_contains}'",
+                o.reason
+            )),
+            None => OutcomeStatus::Fail(format!("pair {sender}→{receiver} not found")),
+        },
+    }
+}
+
+fn find_outcome<'a>(
+    result: &'a crate::compliance_demo::ComplianceDemoResult,
+    sender: &str,
+    receiver: &str,
+) -> Option<&'a crate::compliance_demo::TransferOutcome> {
+    let s_idx = result.participants.iter().position(|p| p.name == sender)?;
+    let r_idx = result.participants.iter().position(|p| p.name == receiver)?;
+    result
+        .matrix
+        .iter()
+        .find(|t| t.sender_idx == s_idx && t.receiver_idx == r_idx)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -313,8 +432,21 @@ fn render_v2_sections(
     results: &[StepResult],
     report: &EmbeddedReport,
 ) {
-    // HEADLINE — for now echo scenario.headline (Phase 3 will verify it).
-    println!("HEADLINE: {}", scenario.headline);
+    // Evaluate expected_outcomes up-front so HEADLINE can carry a
+    // verification badge.
+    let evaluated_outcomes = evaluate_all_outcomes(scenario, results);
+    let any_failed = evaluated_outcomes
+        .iter()
+        .any(|(_, status)| matches!(status, OutcomeStatus::Fail(_)));
+    let has_outcomes = !evaluated_outcomes.is_empty();
+
+    if has_outcomes && !any_failed {
+        println!("HEADLINE ✓: {}", scenario.headline);
+    } else if has_outcomes && any_failed {
+        println!("HEADLINE ⚠: {}", scenario.headline);
+    } else {
+        println!("HEADLINE (unverified): {}", scenario.headline);
+    }
     println!();
 
     // TIMELINE
@@ -393,11 +525,27 @@ fn render_v2_sections(
     }
     println!();
 
-    // OUTCOMES — placeholder until Phase 3.
+    // OUTCOMES — render each evaluated outcome.
     println!("OUTCOMES:");
-    println!(
-        "  (no expected_outcomes declared — Phase 3 will add JSON-driven verification)"
-    );
+    if evaluated_outcomes.is_empty() {
+        println!("  (no expected_outcomes declared — HEADLINE shown as unverified)");
+    } else {
+        for (outcome, status) in &evaluated_outcomes {
+            match status {
+                OutcomeStatus::Pass => println!("  ✓ {}", outcome.description),
+                OutcomeStatus::Fail(why) => {
+                    println!("  ✗ {} ({why})", outcome.description);
+                }
+            }
+        }
+        let passed = evaluated_outcomes
+            .iter()
+            .filter(|(_, s)| matches!(s, OutcomeStatus::Pass))
+            .count();
+        let total = evaluated_outcomes.len();
+        println!();
+        println!("  {passed} of {total} outcome(s) verified.");
+    }
     println!();
 
     if report.failed > 0 {
@@ -418,6 +566,28 @@ fn truncate(s: &str, max: usize) -> &str {
     } else {
         &s[..max]
     }
+}
+
+fn evaluate_all_outcomes<'a>(
+    scenario: &'a Scenario,
+    results: &[StepResult],
+) -> Vec<(&'a ExpectedOutcome, OutcomeStatus)> {
+    let last_compliance = results.iter().rev().find_map(|r| match r {
+        StepResult::ComplianceGateDemo(d) => Some(d),
+    });
+
+    scenario
+        .expected_outcomes
+        .iter()
+        .map(|outcome| {
+            let status = if let Some(d) = last_compliance {
+                evaluate_compliance_check(&outcome.check, d)
+            } else {
+                OutcomeStatus::Fail("no compliance-demo result available".to_string())
+            };
+            (outcome, status)
+        })
+        .collect()
 }
 
 /// v1 embedded execution. Walks each step and spawns:
@@ -685,6 +855,7 @@ mod tests {
                     expect: None,
                 })
                 .collect(),
+            expected_outcomes: Vec::new(),
         }
     }
 
@@ -707,5 +878,160 @@ mod tests {
     fn is_v2_eligible_false_for_empty_scenario() {
         let s = make_scenario(&[]);
         assert!(!is_v2_eligible(&s));
+    }
+
+    /// Phase 3: expected_outcomes parsing + evaluation.
+
+    fn demo_result() -> crate::compliance_demo::ComplianceDemoResult {
+        crate::compliance_demo::run_compliance_demo_structured()
+    }
+
+    #[test]
+    fn evaluate_compliance_check_counts() {
+        let r = demo_result();
+        assert!(matches!(
+            evaluate_compliance_check(&ComplianceCheck::AllowedPairs(2), &r),
+            OutcomeStatus::Pass
+        ));
+        assert!(matches!(
+            evaluate_compliance_check(&ComplianceCheck::RejectedPairs(18), &r),
+            OutcomeStatus::Pass
+        ));
+        assert!(matches!(
+            evaluate_compliance_check(&ComplianceCheck::AllowedPairs(0), &r),
+            OutcomeStatus::Fail(_)
+        ));
+    }
+
+    #[test]
+    fn evaluate_compliance_check_named_pair() {
+        let r = demo_result();
+        assert!(matches!(
+            evaluate_compliance_check(
+                &ComplianceCheck::AllowedPair {
+                    sender: "alice".to_string(),
+                    receiver: "eve".to_string(),
+                },
+                &r
+            ),
+            OutcomeStatus::Pass
+        ));
+        // alice → bob: bob is SUSPENDED, so rejected
+        assert!(matches!(
+            evaluate_compliance_check(
+                &ComplianceCheck::AllowedPair {
+                    sender: "alice".to_string(),
+                    receiver: "bob".to_string(),
+                },
+                &r
+            ),
+            OutcomeStatus::Fail(_)
+        ));
+        // bob → alice: bob is SUSPENDED, so rejected (this matches RejectedPair)
+        assert!(matches!(
+            evaluate_compliance_check(
+                &ComplianceCheck::RejectedPair {
+                    sender: "bob".to_string(),
+                    receiver: "alice".to_string(),
+                },
+                &r
+            ),
+            OutcomeStatus::Pass
+        ));
+    }
+
+    #[test]
+    fn evaluate_compliance_check_reject_reason() {
+        let r = demo_result();
+        assert!(matches!(
+            evaluate_compliance_check(
+                &ComplianceCheck::RejectReason {
+                    sender: "bob".to_string(),
+                    receiver: "alice".to_string(),
+                    reason_contains: "SUSPENDED".to_string(),
+                },
+                &r
+            ),
+            OutcomeStatus::Pass
+        ));
+        // Wrong substring → Fail
+        assert!(matches!(
+            evaluate_compliance_check(
+                &ComplianceCheck::RejectReason {
+                    sender: "bob".to_string(),
+                    receiver: "alice".to_string(),
+                    reason_contains: "BLOCKED".to_string(),
+                },
+                &r
+            ),
+            OutcomeStatus::Fail(_)
+        ));
+    }
+
+    #[test]
+    fn evaluate_compliance_check_unknown_name_fails() {
+        let r = demo_result();
+        let status = evaluate_compliance_check(
+            &ComplianceCheck::AllowedPair {
+                sender: "nonexistent".to_string(),
+                receiver: "alice".to_string(),
+            },
+            &r,
+        );
+        match status {
+            OutcomeStatus::Fail(why) => assert!(why.contains("not found")),
+            _ => panic!("expected Fail"),
+        }
+    }
+
+    #[test]
+    fn scenario_with_expected_outcomes_round_trips() {
+        let json = r#"{
+            "name": "test",
+            "category": "stress",
+            "description": "test",
+            "headline": "test",
+            "steps": [
+                {"explanation": "step", "command": "ssr-cli compliance-gate-demo"}
+            ],
+            "expected_outcomes": [
+                {
+                    "name": "two-allowed",
+                    "description": "two allowed",
+                    "check": {"allowed_pairs": 2}
+                },
+                {
+                    "name": "specific-pair",
+                    "description": "alice→eve allowed",
+                    "check": {"allowed_pair": {"sender": "alice", "receiver": "eve"}}
+                },
+                {
+                    "name": "with-reason",
+                    "description": "reject reason mentions SUSPENDED",
+                    "check": {"reject_reason": {"sender": "bob", "receiver": "alice", "reason_contains": "SUSPENDED"}}
+                }
+            ]
+        }"#;
+        let s: Scenario = serde_json::from_str(json).expect("parse");
+        assert_eq!(s.expected_outcomes.len(), 3);
+        assert!(matches!(
+            s.expected_outcomes[0].check,
+            ComplianceCheck::AllowedPairs(2)
+        ));
+    }
+
+    #[test]
+    fn scenario_without_expected_outcomes_still_parses() {
+        let json = r#"{
+            "name": "test",
+            "category": "stress",
+            "description": "test",
+            "headline": "test",
+            "steps": [
+                {"explanation": "step", "command": "ssr-cli compliance-gate-demo"}
+            ]
+        }"#;
+        let s: Scenario = serde_json::from_str(json).expect("parse");
+        assert!(s.expected_outcomes.is_empty());
     }
 }

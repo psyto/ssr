@@ -9,5 +9,63 @@
       "command": "ssr-cli compliance-gate-demo",
       "expect": "VERIFIED"
     }
+  ],
+  "expected_outcomes": [
+    {
+      "name": "two-allowed",
+      "description": "Exactly 2 pairs clear the gate (alice↔eve, the only VERIFIED↔VERIFIED combinations)",
+      "check": {
+        "allowed_pairs": 2
+      }
+    },
+    {
+      "name": "eighteen-rejected",
+      "description": "Exactly 18 pairs are rejected (every non-VERIFIED↔VERIFIED combination)",
+      "check": {
+        "rejected_pairs": 18
+      }
+    },
+    {
+      "name": "alice-to-eve-allowed",
+      "description": "alice (VERIFIED) → eve (VERIFIED) clears the gate",
+      "check": {
+        "allowed_pair": {
+          "sender": "alice",
+          "receiver": "eve"
+        }
+      }
+    },
+    {
+      "name": "eve-to-alice-allowed",
+      "description": "eve (VERIFIED) → alice (VERIFIED) clears the gate (symmetric)",
+      "check": {
+        "allowed_pair": {
+          "sender": "eve",
+          "receiver": "alice"
+        }
+      }
+    },
+    {
+      "name": "bob-rejected-as-sender",
+      "description": "bob (SUSPENDED) sending to alice is rejected with reason naming SUSPENDED",
+      "check": {
+        "reject_reason": {
+          "sender": "bob",
+          "receiver": "alice",
+          "reason_contains": "SUSPENDED"
+        }
+      }
+    },
+    {
+      "name": "dan-rejected-as-receiver",
+      "description": "alice sending to dan (BLOCKED) is rejected with reason naming BLOCKED",
+      "check": {
+        "reject_reason": {
+          "sender": "alice",
+          "receiver": "dan",
+          "reason_contains": "BLOCKED"
+        }
+      }
+    }
   ]
 }
