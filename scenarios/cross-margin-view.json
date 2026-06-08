@@ -1,29 +1,50 @@
 {
   "name": "cross-margin-view",
   "category": "cross-margin",
-  "description": "Self-contained walkthrough of cross-asset margin. The scenario builds the borrower's state from scratch: register + verify, deposit two collateral mints, open a cross-mint loan, then read the unified margin view. Useful for asking: how does the pool change as I tighten the EQUITY haircut? What happens to free margin when the cash mint's Pyth price moves? Where does cross-mint netting change the verdict vs siloed lending health?",
-  "headline": "Build one borrower with two collateral mints + one cross-mint loan, then watch free margin recompute in one read-only call.",
+  "description": "Self-contained walkthrough of cross-asset margin. The scenario builds the borrower's + lender's state from scratch: register + verify both parties, init risk params, create both Token-2022 mints, init both vaults, fund both sides (with explicit signer switching), open a cross-mint loan, then read the unified margin view. Each step that requires a signer routes through the `--keypair` global flag so it is unambiguous who signs what. Useful for asking: how does the pool change as I tighten the SOVEREIGN_BOND haircut? Where does cross-mint netting change the verdict vs siloed lending health?",
+  "headline": "Build one borrower + one lender + a cross-mint loan from scratch, then watch free margin recompute in one read-only call.",
   "steps": [
     {
-      "explanation": "Initialize the on-chain compliance registry (idempotent for a fresh validator).",
+      "explanation": "Initialize the on-chain compliance registry (idempotent for a fresh validator). The signer becomes the initial super-admin.",
       "command": "ssr-cli compliance init-registry"
     },
     {
-      "explanation": "Register the borrower in the compliance registry.",
+      "explanation": "Register the borrower in the compliance registry. Status starts at PENDING.",
       "command": "ssr-cli compliance register --participant <BORROWER_PUBKEY> --jurisdiction JP"
     },
     {
-      "explanation": "Verify the borrower so they can participate in DvP / vault / lending flows.",
+      "explanation": "Verify the borrower so they can deposit, borrow, and settle.",
       "command": "ssr-cli compliance verify --participant <BORROWER_PUBKEY>",
       "expect": "VERIFIED"
     },
     {
-      "explanation": "Initialize the RiskParams PDA. Sets the governance-mutable haircut table that the margin view reads on every call.",
+      "explanation": "Register the lender.",
+      "command": "ssr-cli compliance register --participant <LENDER_PUBKEY> --jurisdiction JP"
+    },
+    {
+      "explanation": "Verify the lender.",
+      "command": "ssr-cli compliance verify --participant <LENDER_PUBKEY>",
+      "expect": "VERIFIED"
+    },
+    {
+      "explanation": "Initialize the RiskParams PDA. Sets the governance-mutable haircut table the margin view reads on every call.",
       "command": "ssr-cli compliance init-risk-params"
     },
     {
-      "explanation": "(Off-CLI) Create two Token-2022 mints (collateral + cash) without TransferHook and mint inventory to the borrower. Capture the resulting public keys as MINT_SOVEREIGN and MINT_USDC.",
+      "explanation": "(Off-CLI) Create the collateral mint (sovereign-bond class) without TransferHook. Capture the printed pubkey as MINT_SOVEREIGN.",
       "command": "spl-token --program-id TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb create-token --decimals 6"
+    },
+    {
+      "explanation": "(Off-CLI) Create the cash mint (stablecoin class) without TransferHook. Capture the printed pubkey as MINT_USDC.",
+      "command": "spl-token --program-id TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb create-token --decimals 6"
+    },
+    {
+      "explanation": "(Off-CLI) Mint 1_000_000 units of collateral to the borrower's wallet.",
+      "command": "spl-token --program-id TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb mint <MINT_SOVEREIGN> 1000000 --recipient-owner <BORROWER_PUBKEY>"
+    },
+    {
+      "explanation": "(Off-CLI) Mint 1_000_000 units of cash to the lender's wallet.",
+      "command": "spl-token --program-id TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb mint <MINT_USDC> 1000000 --recipient-owner <LENDER_PUBKEY>"
     },
     {
       "explanation": "Initialize the collateral vault for the sovereign-class mint.",
@@ -34,16 +55,16 @@
       "command": "ssr-cli vault init --mint <MINT_USDC> --asset-class stablecoin"
     },
     {
-      "explanation": "Borrower deposits 500_000 units of collateral into the sovereign vault.",
-      "command": "ssr-cli vault deposit --mint <MINT_SOVEREIGN> --amount 500000",
+      "explanation": "Borrower deposits 500_000 units of collateral. Signed by the BORROWER keypair — note the explicit `--keypair` so the depositor is unambiguous (vault deposit uses ssr-cli's global keypair as the depositor identity).",
+      "command": "ssr-cli --keypair <BORROWER_KEYPAIR> vault deposit --mint <MINT_SOVEREIGN> --amount 500000",
       "expect": "amount_deposited"
     },
     {
-      "explanation": "(Lender side) The lender deposits cash inventory so a loan can be opened against it.",
-      "command": "ssr-cli vault deposit --mint <MINT_USDC> --amount 400000"
+      "explanation": "Lender deposits 400_000 units of cash inventory. Signed by the LENDER keypair — again, the `--keypair` flag makes the signer explicit.",
+      "command": "ssr-cli --keypair <LENDER_KEYPAIR> vault deposit --mint <MINT_USDC> --amount 400000"
     },
     {
-      "explanation": "Open a cross-mint loan: borrower collateralizes 300_000 sovereign units, borrows 200_000 USDC against it.",
+      "explanation": "Open the cross-mint loan: borrower posts 300_000 sovereign collateral, borrows 200_000 USDC against it. `lending open` takes both keypairs as positional inputs, so signer identity is already explicit here.",
       "command": "ssr-cli lending open --borrower-keypair <BORROWER_KEYPAIR> --lender-keypair <LENDER_KEYPAIR> --collateral-mint <MINT_SOVEREIGN> --cash-mint <MINT_USDC> --collateral-amount 300000 --principal-amount 200000 --maturity-slot <FUTURE_SLOT> --nonce 1"
     },
     {
@@ -52,11 +73,11 @@
       "expect": "haircut-adjusted"
     },
     {
-      "explanation": "(Parameter dial) Tighten the sovereign-bond haircut and re-read the margin view to see the pool drop.",
+      "explanation": "(Parameter dial) Tighten the SOVEREIGN_BOND haircut from default 5% to 15%. Super-admin signs (same wallet that ran `compliance init-registry`).",
       "command": "ssr-cli compliance set-haircut --class sovereign-bond --bps 1500"
     },
     {
-      "explanation": "Re-read margin. Same accounts, same loan; the haircut change alone moves the free-margin number.",
+      "explanation": "Re-read margin. Same accounts, same loan; the haircut change alone moves the free-margin number — that's the prime broker thesis (governance-mutable risk parameters that propagate immediately) in action.",
       "command": "ssr-cli margin show --user <BORROWER_PUBKEY> --mint <MINT_SOVEREIGN> --mint <MINT_USDC>"
     }
   ]
