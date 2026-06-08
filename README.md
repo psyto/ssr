@@ -1,34 +1,39 @@
 # ssr
 
-**Solana Prime Broker Sandbox engine.** Native Solana programs implementing institutional RWA prime broker primitives — compliance-gated mint, DvP atomic settlement, collateral vault, repo, term lending, oracle-priced cross-margin — designed to make shared-risk brokerage on Solana explorable.
+**Solana Prime Broker Sandbox engine.** A runnable sandbox for exploring shared-risk brokerage on Solana — compliance-gated transfers, atomic delivery-vs-payment, cross-asset margin netting, oracle-priced liquidation — without committing to an implementation.
 
-This is the engine behind Fabrknt's [Solana Prime Broker Sandbox](https://fabrknt.com/solana-prime-broker.html). Per `fabrknt/website/CONCEPT.md`, the sandbox exists so engineering teams, treasury/risk officers, and product owners can study how a Solana-native prime broker system behaves — what changes vs an EVM prime broker, what does it look like to compose compliance + DvP + cross-margin on Solana — by running scenarios rather than reading code.
+This is the engine behind Fabrknt's [Solana Prime Broker Sandbox](https://fabrknt.com/solana-prime-broker.html). Per `fabrknt/website/CONCEPT.md`, the sandbox exists so engineering teams, protocol designers, and risk/treasury reviewers can study how a prime-broker-shape system *behaves* on Solana under stress — what cross-margin nets, where compliance gates fire, what a 50% crash looks like through a Pyth-priced lens — by running scenarios rather than reading code.
 
-## What it is
+## What you can explore
 
-`ssr` ships:
+- **Atomic settlement under a compliance gate.** Hook the on-chain compliance check at the *composition* layer (DvP wrapper) rather than as a Token-2022 TransferHook. Observe how that changes throughput, error semantics, and the SPC channel compatibility envelope.
+- **Cross-asset margin in USD.** A borrower's collateral in mint A backs a loan in cash mint B; the pool is haircut-adjusted, liabilities are Pyth-priced. Tighten a haircut, watch free margin recompute.
+- **Negative paths.** What happens when a counterparty is suspended mid-flow? When the Pyth feed is stale? When the borrower attempts to open more debt than the pool supports? Each is a one-command exploration.
+- **Compliance composition vs. transfer-hook mode.** Both are real options on this engine. The repo lets you flip between them and see the cost trade.
 
-- **`crates/ssr-types`** — Pod-compatible on-chain primitives (`AccountRecord`, `Registry`, status / jurisdiction / asset-class / role discriminants, PDA seeds, status-transition policy).
-- **`programs/ssr-compliance`** — Pinocchio program: on-chain KYC/AML/accredited registry + SPL Transfer Hook–compatible gate + governance-mutable haircut table + Pyth-backed price feeds.
-- **`programs/ssr-dvp-wrapper`** — Thin compliance gate over Solana Foundation's SPC `dvp-swap-program` for atomic Delivery-vs-Payment.
-- **`programs/ssr-vault`** — Per-(mint, depositor) collateral position with lock-authority abstraction (Phase 2).
-- **`programs/ssr-repo`** — Bilateral time-bound collateral lock for repo (Phase 3).
-- **`programs/ssr-lending`** — Term lending with on-chain margin enforcement + cross-collateral pool + Pyth-priced cross-mint liabilities (Phase 3–4).
-- **`cli/`** — Admin and demo surface (`ssr-cli`); every command maps 1-to-1 to an on-chain instruction or a pure derivation.
-- **`tests/integration`** — LiteSVM end-to-end demos exercising the full Phase 0→4 composition.
+## Bring your own outcome
 
-Architecture choices that make this an interesting sandbox surface:
+The sandbox doesn't prescribe one "right" answer. It exposes a set of mechanisms and a CLI to drive them. Buyers, partners, and adjacent teams use it to figure out which combination fits their own constraints — not to be told what theirs are.
 
-- **Two compliance modes coexist** — Token-2022 TransferHook (continuous on-chain gating) AND the composition wrapper pattern (gate-per-meaningful-action). See [`docs/composition-wrapper-pattern.md`](docs/composition-wrapper-pattern.md).
-- **Atomic DvP via Foundation primitives** — uses SPC's audited-ish `dvp-swap-program` rather than reinventing the wheel. See [`docs/spc-integration.md`](docs/spc-integration.md) and [`docs/spc-vs-ssr.md`](docs/spc-vs-ssr.md).
-- **Cross-margin in USD** — Pyth-priced collateral pool vs liabilities, with governance-mutable haircuts per asset class (Phase 4).
-- **Conservative pricing** — Pyth `price − conf`, mandatory exponent normalization, owner-program validation behind opt-in PDA.
+## Engine internals (for the curious)
 
-## What it is NOT
+Underneath, `ssr` ships:
 
-- Not production. No mainnet deployment. The Pyth Receiver program ID is configurable but the rest of the operational posture (multisig keys, oracle redundancy, HSM custody, formal verification) is not present.
-- Not a full RWA platform — token issuance, settlement-network connectivity, KYC vendor integration, fiat rails are out of scope.
-- Not coupled to any specific institution. The engine is generic; institutional integrations live in private engagement workspaces, not here.
+- **`crates/ssr-types`** — Pod-compatible on-chain primitives.
+- **`programs/ssr-compliance`** — Pinocchio program: on-chain compliance registry + SPL Transfer-Hook-compatible gate + governance-mutable haircut table + Pyth-backed price feeds.
+- **`programs/ssr-dvp-wrapper`** — Thin compliance gate over Solana Foundation's SPC `dvp-swap-program` for atomic DvP.
+- **`programs/ssr-vault`** — Per-(mint, depositor) collateral position with lock-authority abstraction.
+- **`programs/ssr-repo`** — Bilateral time-bound collateral lock.
+- **`programs/ssr-lending`** — Term lending with on-chain margin enforcement + cross-collateral pool + Pyth-priced cross-mint liabilities.
+- **`cli/`** — `ssr-cli` admin + scenario surface.
+- **`tests/integration`** — LiteSVM end-to-end demos.
+
+For deeper notes on the design choices: [`docs/composition-wrapper-pattern.md`](docs/composition-wrapper-pattern.md), [`docs/spc-integration.md`](docs/spc-integration.md), [`docs/spc-vs-ssr.md`](docs/spc-vs-ssr.md).
+
+## What this is NOT
+
+- Not a production deployment. Not a settlement system you would put real customer money through today. Pyth Receiver program ID is configurable; the rest of the operational posture (multisig keys, oracle redundancy, HSM custody, formal verification) is not present and isn't promised here.
+- Not coupled to any specific institution. The engine is generic; the sandbox surface is meant for evaluation, not for deployment.
 
 ## How to explore (today)
 
@@ -50,7 +55,7 @@ ssr-cli scenario run dvp-happy-path
 ssr-cli scenario run dvp-happy-path --dry-run
 ```
 
-Three scenarios ship today: `dvp-happy-path` (compliance bootstrap → atomic DvP settle), `dvp-suspension-reject` (negative path with distinct `COMPLIANCE_SUSPENDED` error), `cross-margin-view` (Phase 4 unified margin across two collateral mints + one cross-mint loan).
+Three scenarios ship today: `dvp-happy-path` (compliance bootstrap → atomic DvP settle), `dvp-suspension-reject` (suspended counterparty rejects with distinct `COMPLIANCE_SUSPENDED` error code), `cross-margin-view` (cross-asset margin pool + cross-mint loan, Pyth-driven).
 
 ### Drive the CLI directly
 
@@ -61,12 +66,12 @@ solana-test-validator --reset
 # Build + deploy the programs.
 cargo build-sbf --manifest-path programs/ssr-compliance/Cargo.toml
 cargo build-sbf --manifest-path programs/ssr-dvp-wrapper/Cargo.toml
-# (and ssr-vault / ssr-repo / ssr-lending similarly)
 
 solana program deploy target/deploy/ssr_compliance.so
 solana program deploy target/deploy/ssr_dvp_wrapper.so
 
-# Drive the CLI end-to-end (see cli/README.md "Demo dramaturgy" steps 1–13).
+# Drive the CLI command-by-command — same flows the scenarios use,
+# without the scenario wrapper.
 ssr-cli compliance init-registry
 ssr-cli compliance register --participant <pk> --jurisdiction JP
 ssr-cli compliance verify   --participant <pk>
@@ -80,35 +85,26 @@ ssr-cli margin show         --user <pk> --mint <pk> [--mint <pk> …]
 cargo test -p ssr-integration-tests --test demo_walk
 ```
 
-The CLI demo walk in [`cli/README.md`](cli/README.md) is the closest thing to a guided sandbox tour today.
+The CLI command catalogue in [`cli/README.md`](cli/README.md) covers every flag.
 
 ## Sandbox elements: current state
 
-Per `fabrknt/website/SANDBOX-PATTERN.md`, every Fabrknt sandbox must ship five elements. Here is `ssr`'s current state:
+Per `fabrknt/website/SANDBOX-PATTERN.md`, every Fabrknt sandbox must ship five elements. Honest status:
 
 | Element | Status | Notes |
 |---|---|---|
-| (1) Pre-baked scenarios | **present** | `scenarios/` directory with 3 scenarios (`dvp-happy-path`, `dvp-suspension-reject`, `cross-margin-view`). More to follow (repo lifecycle, lending happy-path, oracle-priced liquidation). |
-| (2) Business-readable output | **v1 present** | `ssr-cli scenario run` spawns each step as a sub-process (`ssr-cli` prefixes auto-route to `current_exe`; other CLIs from PATH), wrapped with a headline header, per-step separators, and a final pass/fail verdict. Stdio inherited so step output streams live. v2 will tee stdio so declared expect-substrings can be verified. |
-| (3) Parameter dial | partial | Risk params (haircut table, max staleness) are governance-mutable. Per-step `--mint`, `--participant`, etc. provide dial-style overrides in scenarios. |
-| (4) Scenario replay | **present** | Each scenario file is a deterministic step list — re-running yields the same sub-process invocations. Bit-identical state requires `solana-test-validator --reset` between runs. |
-| (5) CTA | **done** | `ssr-cli scenario list` / `show` / `run` all render a three-option CTA footer (adopt engine / custom build / hosted access) with `product=solana-prime-broker` for waitlist enrichment. |
-
-## Build
-
-```bash
-cargo check --workspace            # workspace check (host-side)
-cargo test --workspace             # unit + integration tests
-cargo build-sbf --manifest-path programs/ssr-compliance/Cargo.toml
-# (repeat for each program crate)
-```
+| (1) Pre-baked scenarios | **present** | 3 scenarios in `scenarios/`. More to follow (repo lifecycle, lending happy-path, oracle-priced liquidation). |
+| (2) Business-readable output | **partial** | `scenario run` spawns each step as a sub-process and inherits stdio — the underlying `ssr-cli` output is operator-style (PDA addresses, raw fields, tx hashes), wrapped only by a scenario header + per-step pass/fail verdict + final tally. A true business-readable layer (headline + state diff in non-operator language) is v2 work. |
+| (3) Parameter dial | partial | Risk params (haircut table, max staleness) are governance-mutable. Per-step `--mint`, `--participant`, etc. provide dial-style overrides in scenarios. CLI-flag override on `scenario run` (e.g. `--haircut equity 4500`) is v2. |
+| (4) Scenario replay | **present** | Each scenario file is a deterministic step list — re-running yields the same sub-process invocations. Bit-identical chain state requires `solana-test-validator --reset` between runs. |
+| (5) CTA | **done** | `scenario list` / `show` / `run` all render a three-option CTA footer (adopt engine / custom build / hosted access) with `product=solana-prime-broker` for waitlist enrichment. |
 
 ## Related
 
-- [`fabrknt/website/CONCEPT.md`](../fabrknt/website/CONCEPT.md) — Fabrknt brand and 2x2 sandbox structure.
-- [`fabrknt/website/SANDBOX-PATTERN.md`](../fabrknt/website/SANDBOX-PATTERN.md) — cross-engine spec for the five sandbox elements.
-- Sibling Fabrknt engines: [`rdk/openhl`](../rdk/openhl/) (EVM Perp), [`rdk/princeps`](../rdk/princeps/) (EVM Prime Broker), [`openhl-solana`](../openhl-solana/) (Solana Perp).
-- [`docs/composition-wrapper-pattern.md`](docs/composition-wrapper-pattern.md) — the Model C compliance pattern.
+- [`fabrknt/website/CONCEPT.md`](../fabrknt/website/CONCEPT.md) — Fabrknt brand and 2×2 sandbox structure.
+- [`fabrknt/website/SANDBOX-PATTERN.md`](../fabrknt/website/SANDBOX-PATTERN.md) — cross-engine 5-element spec.
+- Sibling Fabrknt engines: [`rdk/openhl`](../rdk/openhl/), [`rdk/princeps`](../rdk/princeps/), [`openhl-solana`](../openhl-solana/).
+- [`docs/composition-wrapper-pattern.md`](docs/composition-wrapper-pattern.md) — composition-layer compliance design.
 - [`docs/spc-integration.md`](docs/spc-integration.md) — Solana Foundation SPC integration analysis.
 - [`docs/spc-vs-ssr.md`](docs/spc-vs-ssr.md) — 1-page position memo on SSR vs SPC.
 

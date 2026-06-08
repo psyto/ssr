@@ -240,20 +240,43 @@ pub fn run_embedded(scenario: &Scenario, path: &Path) -> Result<EmbeddedReport> 
             continue;
         }
 
-        let argv: Vec<&str> = trimmed.split_whitespace().collect();
-        let (program, args) = match argv.split_first() {
-            Some((p, a)) => (*p, a.to_vec()),
-            None => continue,
-        };
+        // Shell-metacharacter detection. Steps that chain commands
+        // via `&&`, `||`, `;`, or pipes can't be naïvely split on
+        // whitespace — the metachars must be interpreted, not passed
+        // as literal argv. Route those through `sh -c` with PATH
+        // augmented so `ssr-cli` resolves to the current binary.
+        let has_shell_metas = trimmed.contains("&&")
+            || trimmed.contains("||")
+            || trimmed.contains(';')
+            || trimmed.contains('|')
+            || trimmed.contains('>')
+            || trimmed.contains('<');
 
-        let (cmd_name, cmd_args): (String, Vec<&str>) = if program == "ssr-cli" {
-            (current_exe.to_string_lossy().into_owned(), args)
+        let mut cmd = if has_shell_metas {
+            let mut c = Command::new("sh");
+            c.args(["-c", trimmed]);
+            if let Some(exe_dir) = current_exe.parent() {
+                let existing = std::env::var("PATH").unwrap_or_default();
+                let new_path = format!("{}:{existing}", exe_dir.display());
+                c.env("PATH", new_path);
+            }
+            c
         } else {
-            (program.to_string(), args)
+            let argv: Vec<&str> = trimmed.split_whitespace().collect();
+            let (program, args) = match argv.split_first() {
+                Some((p, a)) => (*p, a.to_vec()),
+                None => continue,
+            };
+            let (cmd_name, cmd_args): (String, Vec<&str>) = if program == "ssr-cli" {
+                (current_exe.to_string_lossy().into_owned(), args)
+            } else {
+                (program.to_string(), args)
+            };
+            let mut c = Command::new(&cmd_name);
+            c.args(&cmd_args);
+            c
         };
 
-        let mut cmd = Command::new(&cmd_name);
-        cmd.args(&cmd_args);
         let status = cmd.status();
 
         match status {
@@ -273,9 +296,11 @@ pub fn run_embedded(scenario: &Scenario, path: &Path) -> Result<EmbeddedReport> 
             Err(e) => {
                 println!();
                 println!("  ✗ step {} failed to spawn: {e}", i + 1);
-                println!(
-                    "    (program: {cmd_name:?}; ssr-cli prefixes are auto-routed to current_exe — other CLIs must be in PATH)"
-                );
+                if has_shell_metas {
+                    println!("    (routed via `sh -c` because the command contains shell metacharacters; check that `sh` is available)");
+                } else {
+                    println!("    (ssr-cli prefixes auto-route to current_exe; other CLIs must be in PATH)");
+                }
                 report.failed += 1;
             }
         }

@@ -1,30 +1,34 @@
 {
   "name": "cross-margin-view",
   "category": "cross-margin",
-  "description": "Phase 4 prime broker view: take a borrower with two collateral positions (sovereign bond and stablecoin) and one open loan in USDC. Render the unified margin summary — haircut-adjusted collateral pool, projected liability with simple interest, net free margin per cash mint. Demonstrates the cross-asset risk netting story that single-protocol systems cannot produce.",
-  "headline": "One borrower, two collateral mints, one cross-mint loan: see haircut-adjusted free margin in one read-only call.",
+  "description": "Explore how cross-asset margin behaves on Solana. A borrower holds two collateral positions in different mints (e.g. a sovereign bond and a stablecoin) and one cross-mint loan. The unified margin view aggregates: haircut-adjusted collateral pool by asset class, projected liability (principal + simple interest), and net free margin per cash mint. Useful for asking: how does the pool change as I tighten the EQUITY haircut? What happens to free margin when ETH bounces between $1.00 and $1.08? Where does a real Pyth feed change the verdict vs the manually-set price?",
+  "headline": "One borrower, two collateral mints, one cross-mint loan: free margin recomputes in one read-only call.",
   "steps": [
     {
       "explanation": "Initialize the RiskParams PDA (one-time per deployment). Sets the governance-mutable haircut table.",
       "command": "ssr-cli compliance init-risk-params"
     },
     {
-      "explanation": "(Optional) Tighten the EQUITY-class haircut from the 30% default to 45%. Demonstrates governance-mutable risk parameters.",
+      "explanation": "(Optional) Tighten the EQUITY-class haircut from the 30% default to 45%. Demonstrates the parameter dial.",
       "command": "ssr-cli compliance set-haircut --class equity --bps 4500"
     },
     {
-      "explanation": "Read the current haircut table to confirm. No keypair needed for read-only commands.",
+      "explanation": "Read the current haircut table to confirm. Read-only — no keypair needed.",
       "command": "ssr-cli compliance show-risk-params",
       "expect": "EQUITY"
     },
     {
-      "explanation": "Assume the borrower already deposited 500_000 units of MINT_SOVEREIGN as collateral via `ssr-cli vault deposit ...` and opened a loan via `ssr-cli lending open ...` (these flows are covered by `dvp-happy-path` + later scenarios). Now read the unified margin view across both collateral mints.",
+      "explanation": "Assume the borrower already deposited 500_000 units of MINT_SOVEREIGN as collateral via `ssr-cli vault deposit ...` and opened a loan via `ssr-cli lending open ...` (these flows live in adjacent scenarios). Read the unified margin view across both collateral mints.",
       "command": "ssr-cli margin show --user <BORROWER_PUBKEY> --mint <MINT_SOVEREIGN> --mint <MINT_USDC>",
       "expect": "haircut-adjusted"
     },
     {
-      "explanation": "(Optional — when Pyth is bound) Refresh the collateral feed from Pyth and re-read margin. Demonstrates the oracle-driven dial.",
-      "command": "ssr-cli compliance update-price-from-pyth --mint <MINT_SOVEREIGN> && ssr-cli margin show --user <BORROWER_PUBKEY> --mint <MINT_SOVEREIGN> --mint <MINT_USDC>"
+      "explanation": "(Optional — when Pyth is bound) Refresh the collateral feed from Pyth.",
+      "command": "ssr-cli compliance update-price-from-pyth --mint <MINT_SOVEREIGN>"
+    },
+    {
+      "explanation": "Re-read margin after the Pyth refresh — observe how the oracle drives the free-margin number.",
+      "command": "ssr-cli margin show --user <BORROWER_PUBKEY> --mint <MINT_SOVEREIGN> --mint <MINT_USDC>"
     }
   ]
 }
