@@ -76,10 +76,16 @@ pub struct ExpectedOutcome {
 
 /// Engine-specific check schema for ssr. JSON-serialized as externally-
 /// tagged so authors write `{"allowed_pairs": 2}` rather than
-/// `{"kind": "allowed_pairs", "value": 2}`.
+/// `{"kind": "allowed_pairs", "value": 2}`. Unit variants serialize as
+/// bare strings.
+///
+/// Checks dispatch on their own variant to the matching `StepResult`
+/// type: compliance-gate checks look at the last `ComplianceGateDemo`
+/// result; haircut checks at the last `HaircutMatrix` result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ComplianceCheck {
+    // --- ComplianceGateDemo checks ---
     /// Assert the exact count of (sender, receiver) pairs the gate allows.
     AllowedPairs(usize),
     /// Assert the exact count of pairs the gate rejects.
@@ -101,6 +107,18 @@ pub enum ComplianceCheck {
         receiver: String,
         reason_contains: String,
     },
+
+    // --- HaircutMatrix checks ---
+    /// Assert exact count of recognised asset classes (8 by default).
+    HaircutClassCountExact(usize),
+    /// Assert a specific asset class's default haircut equals the value.
+    HaircutForClassExact { class: String, expected_bps: u16 },
+    /// Assert the matrix is ordered safest-first (monotonic non-decreasing).
+    HaircutMonotonicByRiskTier,
+    /// Assert at least N asset classes carry zero haircut (the "near-cash" tier).
+    HaircutZeroClassCountMin(usize),
+    /// Assert the heaviest haircut across all classes is at least N bps.
+    HaircutHeaviestAtLeast(u16),
 }
 
 /// Per-outcome evaluation status used in the OUTCOMES section.
@@ -110,7 +128,7 @@ pub enum OutcomeStatus {
     Fail(String),
 }
 
-/// Evaluate one check against a [`compliance_demo::ComplianceDemoResult`].
+/// Evaluate one ComplianceGate-targeted check.
 pub fn evaluate_compliance_check(
     check: &ComplianceCheck,
     result: &crate::compliance_demo::ComplianceDemoResult,
@@ -161,6 +179,72 @@ pub fn evaluate_compliance_check(
             )),
             None => OutcomeStatus::Fail(format!("pair {sender}→{receiver} not found")),
         },
+        // Haircut checks are evaluated by `evaluate_haircut_check`.
+        ComplianceCheck::HaircutClassCountExact(_)
+        | ComplianceCheck::HaircutForClassExact { .. }
+        | ComplianceCheck::HaircutMonotonicByRiskTier
+        | ComplianceCheck::HaircutZeroClassCountMin(_)
+        | ComplianceCheck::HaircutHeaviestAtLeast(_) => OutcomeStatus::Fail(
+            "this check targets the haircut matrix, not the compliance gate".to_string(),
+        ),
+    }
+}
+
+/// Evaluate one HaircutMatrix-targeted check.
+pub fn evaluate_haircut_check(
+    check: &ComplianceCheck,
+    result: &crate::haircut_matrix_demo::HaircutMatrixDemoResult,
+) -> OutcomeStatus {
+    match check {
+        ComplianceCheck::HaircutClassCountExact(expected) => {
+            if result.class_count() == *expected {
+                OutcomeStatus::Pass
+            } else {
+                OutcomeStatus::Fail(format!(
+                    "observed class count = {}",
+                    result.class_count()
+                ))
+            }
+        }
+        ComplianceCheck::HaircutForClassExact { class, expected_bps } => {
+            match result.find_class(class) {
+                Some(e) if e.haircut_bps == *expected_bps => OutcomeStatus::Pass,
+                Some(e) => OutcomeStatus::Fail(format!(
+                    "class {class} haircut = {} bps (expected {expected_bps})",
+                    e.haircut_bps
+                )),
+                None => OutcomeStatus::Fail(format!("class {class} not found")),
+            }
+        }
+        ComplianceCheck::HaircutMonotonicByRiskTier => {
+            if result.haircuts_monotonic_non_decreasing() {
+                OutcomeStatus::Pass
+            } else {
+                OutcomeStatus::Fail("matrix ordering breaks the risk-tier monotonicity".to_string())
+            }
+        }
+        ComplianceCheck::HaircutZeroClassCountMin(min) => {
+            let zero_count = result.entries.iter().filter(|e| e.haircut_bps == 0).count();
+            if zero_count >= *min {
+                OutcomeStatus::Pass
+            } else {
+                OutcomeStatus::Fail(format!(
+                    "observed zero-haircut classes = {zero_count}"
+                ))
+            }
+        }
+        ComplianceCheck::HaircutHeaviestAtLeast(min) => {
+            let max = result.entries.iter().map(|e| e.haircut_bps).max().unwrap_or(0);
+            if max >= *min {
+                OutcomeStatus::Pass
+            } else {
+                OutcomeStatus::Fail(format!("observed heaviest haircut = {max} bps"))
+            }
+        }
+        // Non-haircut checks don't apply here.
+        _ => OutcomeStatus::Fail(
+            "this check targets the compliance gate, not the haircut matrix".to_string(),
+        ),
     }
 }
 
@@ -352,6 +436,8 @@ pub struct EmbeddedReport {
 pub enum InProcessTarget {
     /// `ssr-cli compliance-gate-demo`
     ComplianceGateDemo,
+    /// `ssr-cli haircut-matrix-demo`
+    HaircutMatrixDemo,
 }
 
 /// Try to parse a step's command into an in-process target. Returns
@@ -360,6 +446,9 @@ pub fn try_parse_in_process(command: &str) -> Option<InProcessTarget> {
     let trimmed = command.trim();
     if trimmed == "ssr-cli compliance-gate-demo" {
         return Some(InProcessTarget::ComplianceGateDemo);
+    }
+    if trimmed == "ssr-cli haircut-matrix-demo" {
+        return Some(InProcessTarget::HaircutMatrixDemo);
     }
     None
 }
@@ -377,6 +466,7 @@ pub fn is_v2_eligible(scenario: &Scenario) -> bool {
 #[derive(Debug, Clone)]
 enum StepResult {
     ComplianceGateDemo(crate::compliance_demo::ComplianceDemoResult),
+    HaircutMatrix(crate::haircut_matrix_demo::HaircutMatrixDemoResult),
 }
 
 /// Embedded execution. For v2-eligible scenarios, dispatches in-process,
@@ -407,10 +497,14 @@ fn run_embedded_v2(scenario: &Scenario, path: &Path) -> Result<EmbeddedReport> {
             InProcessTarget::ComplianceGateDemo => {
                 let r = crate::compliance_demo::run_compliance_demo_structured();
                 results.push(StepResult::ComplianceGateDemo(r));
-                let _ = step; // explanation echoed by the renderer
-                let _ = &mut failed; // no fallible path here today
+            }
+            InProcessTarget::HaircutMatrixDemo => {
+                let r = crate::haircut_matrix_demo::run_haircut_matrix_demo_structured();
+                results.push(StepResult::HaircutMatrix(r));
             }
         }
+        let _ = step;
+        let _ = &mut failed;
     }
 
     let report = EmbeddedReport {
@@ -468,11 +562,27 @@ fn render_v2_sections(
                     d.rejected_pairs()
                 );
             }
+            StepResult::HaircutMatrix(d) => {
+                println!(
+                    "    enumerate  {} recognised SSR asset classes via ssr-types::default_haircut_bps",
+                    d.class_count()
+                );
+                println!(
+                    "    project    haircut-adjusted collateral at notional sizes {:?}",
+                    d.sample_notionals
+                );
+                let max = d.entries.iter().map(|e| e.haircut_bps).max().unwrap_or(0);
+                let zeros = d.entries.iter().filter(|e| e.haircut_bps == 0).count();
+                println!(
+                    "    summarize  {zeros} class(es) at zero haircut; heaviest haircut = {max} bps ({:.1}%)",
+                    max as f64 / 100.0
+                );
+            }
         }
     }
     println!();
 
-    // DELTA — the matrix itself.
+    // DELTA — the matrix(es).
     println!("DELTA:");
     for r in results {
         match r {
@@ -519,6 +629,28 @@ fn render_v2_sections(
                         "    {:<7} → {:<7}   {}",
                         sender.name, receiver.name, outcome.reason
                     );
+                }
+            }
+            StepResult::HaircutMatrix(d) => {
+                println!(
+                    "  {:<18}  {:<8}  {:>12}  {:>12}  {:>14}",
+                    "Class", "Haircut", "10K notional", "100K notional", "1M notional"
+                );
+                println!(
+                    "  {}  {}  {}  {}  {}",
+                    "─".repeat(18),
+                    "─".repeat(8),
+                    "─".repeat(12),
+                    "─".repeat(12),
+                    "─".repeat(14)
+                );
+                for (i, e) in d.entries.iter().enumerate() {
+                    let pct = e.haircut_bps as f64 / 100.0;
+                    print!("  {:<18}  {:>5.1}%   ", e.label, pct);
+                    for &notional in &d.sample_notionals {
+                        print!(" {:>12}", d.effective_value(i, notional));
+                    }
+                    println!();
                 }
             }
         }
@@ -574,16 +706,40 @@ fn evaluate_all_outcomes<'a>(
 ) -> Vec<(&'a ExpectedOutcome, OutcomeStatus)> {
     let last_compliance = results.iter().rev().find_map(|r| match r {
         StepResult::ComplianceGateDemo(d) => Some(d),
+        _ => None,
+    });
+    let last_haircut = results.iter().rev().find_map(|r| match r {
+        StepResult::HaircutMatrix(d) => Some(d),
+        _ => None,
     });
 
     scenario
         .expected_outcomes
         .iter()
         .map(|outcome| {
-            let status = if let Some(d) = last_compliance {
-                evaluate_compliance_check(&outcome.check, d)
-            } else {
-                OutcomeStatus::Fail("no compliance-demo result available".to_string())
+            let status = match &outcome.check {
+                // Compliance-gate-targeted checks
+                ComplianceCheck::AllowedPairs(_)
+                | ComplianceCheck::RejectedPairs(_)
+                | ComplianceCheck::AllowedPair { .. }
+                | ComplianceCheck::RejectedPair { .. }
+                | ComplianceCheck::RejectReason { .. } => match last_compliance {
+                    Some(d) => evaluate_compliance_check(&outcome.check, d),
+                    None => OutcomeStatus::Fail(
+                        "no compliance-demo result available".to_string(),
+                    ),
+                },
+                // Haircut-matrix-targeted checks
+                ComplianceCheck::HaircutClassCountExact(_)
+                | ComplianceCheck::HaircutForClassExact { .. }
+                | ComplianceCheck::HaircutMonotonicByRiskTier
+                | ComplianceCheck::HaircutZeroClassCountMin(_)
+                | ComplianceCheck::HaircutHeaviestAtLeast(_) => match last_haircut {
+                    Some(d) => evaluate_haircut_check(&outcome.check, d),
+                    None => OutcomeStatus::Fail(
+                        "no haircut-matrix result available".to_string(),
+                    ),
+                },
             };
             (outcome, status)
         })

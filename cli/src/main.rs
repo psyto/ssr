@@ -22,6 +22,7 @@
 //!   `keypair_path`.
 
 mod compliance_demo;
+mod haircut_matrix_demo;
 mod scenario;
 
 use {
@@ -162,6 +163,14 @@ enum TopCommand {
     /// Same flow the scenario runner v2 path invokes for the
     /// `compliance-gate-demo` scenario.
     ComplianceGateDemo,
+
+    /// Standalone haircut-matrix demo. Walks every recognised SSR
+    /// asset class, reports its default haircut, and renders the
+    /// haircut-adjusted collateral value at three sample notional
+    /// sizes (10K, 100K, 1M). Pure Rust against `ssr-types`
+    /// constants — no validator, no LiteSVM. Same flow the scenario
+    /// runner v2 path invokes for the `haircut-matrix-demo` scenario.
+    HaircutMatrixDemo,
 }
 
 #[derive(Subcommand)]
@@ -3190,6 +3199,10 @@ fn main() -> Result<()> {
         TopCommand::Scenario(cmd) => cmd_scenario(cmd),
         TopCommand::ComplianceGateDemo => {
             compliance_demo::run_compliance_demo_cli();
+            Ok(())
+        }
+        TopCommand::HaircutMatrixDemo => {
+            haircut_matrix_demo::run_haircut_matrix_demo_cli();
             Ok(())
         }
     }

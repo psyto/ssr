@@ -1,0 +1,69 @@
+{
+  "name": "haircut-matrix-demo",
+  "category": "walkthrough",
+  "description": "Self-contained, no-validator demo of the SSR risk-tier model. Walks every recognised asset class (TOKENIZED_DEPOSIT, STABLECOIN, SOVEREIGN_BOND, CORPORATE_BOND, FUND_UNIT, COMMODITY, EQUITY, REAL_ASSET) and renders the default haircut alongside the haircut-adjusted collateral value at three sample notional sizes (10K, 100K, 1M). Useful for asking: how much credit does an equity-class position actually get under cross-margin? Which classes are 'near-cash' (0% haircut)? Where does the heaviest risk-tier discount land?\n\nRuns in milliseconds against pure-Rust `ssr-types` constants — no Solana validator, no LiteSVM, no deployed program. Pairs naturally with `compliance-gate-demo` (one surfaces the transfer-permission model, the other the collateral-credit model).",
+  "headline": "8 asset classes ordered safest → riskiest (0% → 40% haircut); EQUITY collateral credits at 70¢ on the dollar, REAL_ASSET at 60¢.",
+  "steps": [
+    {
+      "explanation": "Enumerate every recognised SSR asset class via `ssr-types::default_haircut_bps` and project haircut-adjusted collateral at three sample notional sizes.",
+      "command": "ssr-cli haircut-matrix-demo",
+      "expect": "EQUITY"
+    }
+  ],
+  "expected_outcomes": [
+    {
+      "name": "eight-classes",
+      "description": "Exactly 8 recognised asset classes",
+      "check": {
+        "haircut_class_count_exact": 8
+      }
+    },
+    {
+      "name": "two-zero-haircut",
+      "description": "At least 2 classes credit at full notional (TOKENIZED_DEPOSIT + STABLECOIN)",
+      "check": {
+        "haircut_zero_class_count_min": 2
+      }
+    },
+    {
+      "name": "monotonic-by-risk",
+      "description": "Haircuts are monotonically non-decreasing in the safest-first ordering",
+      "check": "haircut_monotonic_by_risk_tier"
+    },
+    {
+      "name": "tokenized-deposit-zero",
+      "description": "TOKENIZED_DEPOSIT defaults to zero haircut (near-cash)",
+      "check": {
+        "haircut_for_class_exact": {"class": "TOKENIZED_DEPOSIT", "expected_bps": 0}
+      }
+    },
+    {
+      "name": "sovereign-bond-five",
+      "description": "SOVEREIGN_BOND defaults to 500 bps (5%) haircut",
+      "check": {
+        "haircut_for_class_exact": {"class": "SOVEREIGN_BOND", "expected_bps": 500}
+      }
+    },
+    {
+      "name": "equity-thirty",
+      "description": "EQUITY defaults to 3000 bps (30%) haircut",
+      "check": {
+        "haircut_for_class_exact": {"class": "EQUITY", "expected_bps": 3000}
+      }
+    },
+    {
+      "name": "real-asset-forty",
+      "description": "REAL_ASSET defaults to 4000 bps (40%) haircut — heaviest standing",
+      "check": {
+        "haircut_for_class_exact": {"class": "REAL_ASSET", "expected_bps": 4000}
+      }
+    },
+    {
+      "name": "heaviest-at-least-40-pct",
+      "description": "The riskiest tier carries at least a 40% haircut",
+      "check": {
+        "haircut_heaviest_at_least": 4000
+      }
+    }
+  ]
+}

@@ -55,11 +55,12 @@ ssr-cli scenario run dvp-happy-path
 ssr-cli scenario run dvp-happy-path --dry-run
 ```
 
-Four scenarios ship today:
-- **`compliance-gate-demo`** (v2, no validator needed) — pure-Rust simulation of the compliance gate against a 5-participant population; renders a 5×5 allow/reject matrix with named failure reasons.
-- `dvp-happy-path` — compliance bootstrap → atomic DvP settle (v1, sub-process).
-- `dvp-suspension-reject` — suspended counterparty rejects with distinct `COMPLIANCE_SUSPENDED` (v1, sub-process).
-- `cross-margin-view` — cross-asset margin pool + cross-mint loan, Pyth-driven (v1, sub-process).
+Five scenarios ship today:
+- **`compliance-gate-demo`** (stress, v2 no validator) — pure-Rust simulation of the compliance gate against a 5-participant population; renders a 5×5 allow/reject matrix with named failure reasons; ✓ all 6 outcomes verify.
+- **`haircut-matrix-demo`** (walkthrough, v2 no validator) — enumerates all 8 recognised SSR asset classes and projects haircut-adjusted collateral value at three sample notional sizes; ✓ all 8 outcomes verify.
+- `dvp-happy-path` (walkthrough, v1 sub-process) — compliance bootstrap → atomic DvP settle.
+- `dvp-suspension-reject` (negative-path, v1 sub-process) — suspended counterparty rejects with distinct `COMPLIANCE_SUSPENDED` (0x2013).
+- `cross-margin-view` (walkthrough, v1 sub-process) — cross-asset margin pool + cross-mint loan, Pyth-driven.
 
 ### Drive the CLI directly
 
